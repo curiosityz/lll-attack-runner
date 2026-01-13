@@ -47,6 +47,13 @@ An interactive web application for running LLL (Lenstra-Lenstra-Lovász) lattice
 - **Progression**: Browse templates → Filter by category → Select template → View description and expected outcome → Load parameters → Modify if desired → Run
 - **Success criteria**: Templates demonstrate various attack types with clear explanations, organized by category for easy navigation, covering beginner to advanced scenarios
 
+### Matrix Visualization with D3
+- **Functionality**: Interactive D3-based visualizations showing vector transformations during LLL reduction process
+- **Purpose**: Educational tool to understand how the algorithm progressively reduces the lattice basis
+- **Trigger**: User enables "Capture visualization steps" before running attack
+- **Progression**: Enable capture → Run attack → View visualization tab → Scrub through timeline or play animation → Observe vector changes, swaps, and reductions → Analyze orthogonality/norm charts
+- **Success criteria**: Smooth animations showing vector transformations, clear indication of swap vs reduce operations, synchronized matrix heatmap and progress charts
+
 ## Edge Case Handling
 
 - **Invalid Matrix Input**: Detect non-numeric, malformed, or non-square matrices and show inline validation errors
@@ -98,26 +105,36 @@ Animations should emphasize computational progression and mathematical transform
 - Success states get a satisfying scale-up confirmation (200ms)
 - History items fade in sequentially with stagger effect when viewing list
 - Tab transitions use smooth crossfade to maintain context
+- D3 visualizations use smooth transitions (400-600ms) when stepping through algorithm iterations
+- Vector movements in 2D plot follow natural easing curves to show transformations
+- Heatmap cells transition colors smoothly when matrix values change
+- Progress charts draw paths with animated line growth from left to right
 
 ## Component Selection
 
 - **Components**: 
-  - Tabs (attack configuration, history, help) for main navigation
-  - Card for containing attack setup panel, results display, and history items
+  - Tabs (attack configuration, visualization, history, help) for main navigation
+  - Card for containing attack setup panel, results display, visualization panels, and history items
   - Button with variants (default for run, outline for templates, destructive for clear)
   - Textarea for matrix input with monospace styling
   - Input for numeric parameters (delta value, dimension)
   - Select for attack type dropdown
-  - Badge for attack status indicators (success, failed, running)
+  - Badge for attack status indicators (success, failed, running) and action types (swap, reduce)
   - Separator for dividing sections within panels
   - ScrollArea for history list and large result displays
   - Dialog for template selection with descriptions
   - Alert for warnings about computation time or invalid input
+  - Checkbox for enabling visualization capture
+  - Slider for scrubbing through visualization timeline
+  - D3 SVG components for vector plots, matrix heatmaps, and progress charts
   
 - **Customizations**:
   - Custom MatrixInput component combining Textarea with validation and formatting helpers
   - Custom VectorDisplay component for rendering mathematical vectors with highlighting
   - Custom AttackCard component wrapping Card with specific layout for history items
+  - Custom VectorVisualization component with D3 for interactive 2D vector plots and norm bar charts
+  - Custom MatrixHeatmap component with D3 for color-coded matrix state visualization
+  - Custom OrthogonalityChart component with D3 for dual-axis progress tracking
   
 - **States**:
   - Buttons: Default (electric blue), hover (brighter blue with subtle glow), active (pressed with scale), disabled (muted with reduced opacity), loading (with spinner)
@@ -125,7 +142,9 @@ Animations should emphasize computational progression and mathematical transform
   - Results: Computing (pulsing skeleton), success (green accent), failure (amber accent)
   
 - **Icon Selection**:
-  - Play icon for "Run Attack" button
+  - Play icon for "Run Attack" button and playback controls
+  - Pause icon for stopping animation playback
+  - SkipForward/SkipBack for stepping through visualization frames
   - ClockClockwise for re-run from history
   - X for clear/delete actions
   - ListBullets for history view
@@ -134,6 +153,7 @@ Animations should emphasize computational progression and mathematical transform
   - CheckCircle for successful attacks
   - XCircle for failed attacks
   - Calculator for mathematical operations
+  - ChartLine for visualization tab
   
 - **Spacing**:
   - Container padding: p-6 (24px) for main panels
@@ -149,3 +169,6 @@ Animations should emphasize computational progression and mathematical transform
   - History cards become full-width with simplified display
   - Reduce padding to p-4 on mobile
   - Parameters stack vertically instead of grid layout
+  - Visualization controls stack vertically with larger touch targets
+  - D3 charts use responsive viewBox for mobile scaling
+  - Playback speed selector reduces to 2 options on mobile

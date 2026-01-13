@@ -1,8 +1,11 @@
+import { LLLStep } from './types'
+
 export interface LLLResult {
   reducedBasis: number[][]
   iterations: number
   solutionVector?: number[]
   success: boolean
+  steps?: LLLStep[]
 }
 
 function dotProduct(a: number[], b: number[]): number {
@@ -55,7 +58,7 @@ function lovaszCondition(
   return left >= right
 }
 
-export function runLLL(basis: number[][], delta: number = 0.75): LLLResult {
+export function runLLL(basis: number[][], delta: number = 0.75, captureSteps: boolean = false): LLLResult {
   if (basis.length === 0 || basis[0].length === 0) {
     return { reducedBasis: basis, iterations: 0, success: false }
   }
@@ -64,6 +67,17 @@ export function runLLL(basis: number[][], delta: number = 0.75): LLLResult {
   const reducedBasis = basis.map(row => [...row])
   let iterations = 0
   const maxIterations = 10000
+  const steps: LLLStep[] = []
+
+  if (captureSteps) {
+    steps.push({
+      iteration: 0,
+      basis: reducedBasis.map(row => [...row]),
+      k: 1,
+      action: 'complete',
+      description: 'Initial basis'
+    })
+  }
 
   let k = 1
 
@@ -77,6 +91,16 @@ export function runLLL(basis: number[][], delta: number = 0.75): LLLResult {
       if (Math.abs(muKJ) > 0.5) {
         const q = Math.round(muKJ)
         reducedBasis[k] = vectorSubtract(reducedBasis[k], vectorScale(reducedBasis[j], q))
+        
+        if (captureSteps && steps.length < 100) {
+          steps.push({
+            iteration: iterations,
+            basis: reducedBasis.map(row => [...row]),
+            k,
+            action: 'reduce',
+            description: `Reduced vector ${k} using vector ${j}`
+          })
+        }
       }
     }
 
@@ -86,8 +110,29 @@ export function runLLL(basis: number[][], delta: number = 0.75): LLLResult {
       k++
     } else {
       [reducedBasis[k], reducedBasis[k - 1]] = [reducedBasis[k - 1], reducedBasis[k]]
+      
+      if (captureSteps && steps.length < 100) {
+        steps.push({
+          iteration: iterations,
+          basis: reducedBasis.map(row => [...row]),
+          k,
+          action: 'swap',
+          description: `Swapped vectors ${k} and ${k - 1}`
+        })
+      }
+      
       k = Math.max(1, k - 1)
     }
+  }
+
+  if (captureSteps) {
+    steps.push({
+      iteration: iterations,
+      basis: reducedBasis.map(row => [...row]),
+      k,
+      action: 'complete',
+      description: 'Reduction complete'
+    })
   }
 
   const shortestVector = reducedBasis.reduce((shortest, vec) => {
@@ -106,7 +151,8 @@ export function runLLL(basis: number[][], delta: number = 0.75): LLLResult {
     reducedBasis,
     iterations,
     solutionVector: shortestVector,
-    success: isReduced && !hasZeroVector
+    success: isReduced && !hasZeroVector,
+    steps: captureSteps ? steps : undefined
   }
 }
 

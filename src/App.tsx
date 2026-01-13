@@ -9,14 +9,18 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Separator } from '@/components/ui/separator'
-import { Play, Lightbulb, Calculator, ListBullets } from '@phosphor-icons/react'
+import { Checkbox } from '@/components/ui/checkbox'
+import { Play, Lightbulb, Calculator, ListBullets, ChartLine } from '@phosphor-icons/react'
 import { toast } from 'sonner'
-import { AttackHistory, AttackType, AttackTemplate } from '@/lib/types'
+import { AttackHistory, AttackType, AttackTemplate, LLLStep } from '@/lib/types'
 import { runLLL, parseBasisFromString } from '@/lib/lll'
 import { MatrixInput } from '@/components/MatrixInput'
 import { VectorDisplay } from '@/components/VectorDisplay'
 import { AttackCard } from '@/components/AttackCard'
 import { TemplateDialog } from '@/components/TemplateDialog'
+import { VectorVisualization } from '@/components/VectorVisualization'
+import { MatrixHeatmap } from '@/components/MatrixHeatmap'
+import { OrthogonalityChart } from '@/components/OrthogonalityChart'
 
 function App() {
   const [attackHistory, setAttackHistory] = useKV<AttackHistory[]>('attack-history', [])
@@ -26,6 +30,9 @@ function App() {
   const [basisInput, setBasisInput] = useState('1 2 3\n4 5 6\n7 8 9')
   const [delta, setDelta] = useState('0.75')
   const [isRunning, setIsRunning] = useState(false)
+  const [captureVisualization, setCaptureVisualization] = useState(false)
+  const [visualizationSteps, setVisualizationSteps] = useState<LLLStep[]>([])
+  const [currentVisualizationStep, setCurrentVisualizationStep] = useState(0)
   const [result, setResult] = useState<{
     reducedBasis: number[][]
     iterations: number
@@ -50,11 +57,12 @@ function App() {
 
     setIsRunning(true)
     setResult(null)
+    setVisualizationSteps([])
 
     await new Promise(resolve => setTimeout(resolve, 100))
 
     const startTime = performance.now()
-    const lllResult = runLLL(basis, deltaValue)
+    const lllResult = runLLL(basis, deltaValue, captureVisualization)
     const endTime = performance.now()
 
     const executionTime = Math.round(endTime - startTime)
@@ -69,6 +77,11 @@ function App() {
 
     setResult(newResult)
     setIsRunning(false)
+
+    if (lllResult.steps) {
+      setVisualizationSteps(lllResult.steps)
+      setCurrentVisualizationStep(0)
+    }
 
     const newHistory: AttackHistory = {
       config: {
@@ -105,6 +118,7 @@ function App() {
     setBasisInput(template.basis.map(row => row.join(' ')).join('\n'))
     setDelta(template.delta.toString())
     setResult(null)
+    setVisualizationSteps([])
     toast.success(`Loaded template: ${template.name}`)
   }
 
@@ -114,6 +128,7 @@ function App() {
     setBasisInput(history.config.basis.map(row => row.join(' ')).join('\n'))
     setDelta(history.config.delta.toString())
     setResult(null)
+    setVisualizationSteps([])
     toast.success('Configuration restored')
   }
 
@@ -136,10 +151,14 @@ function App() {
         </header>
 
         <Tabs defaultValue="attack" className="space-y-6">
-          <TabsList className="grid w-full grid-cols-3 max-w-md">
+          <TabsList className="grid w-full grid-cols-4 max-w-2xl">
             <TabsTrigger value="attack">
               <Play size={16} className="mr-2" />
               Attack
+            </TabsTrigger>
+            <TabsTrigger value="visualization" disabled={visualizationSteps.length === 0}>
+              <ChartLine size={16} className="mr-2" />
+              Visualization
             </TabsTrigger>
             <TabsTrigger value="history">
               <ListBullets size={16} className="mr-2" />
@@ -228,6 +247,22 @@ function App() {
 
                     <Separator />
 
+                    <div className="flex items-center space-x-2">
+                      <Checkbox
+                        id="capture-visualization"
+                        checked={captureVisualization}
+                        onCheckedChange={(checked) => setCaptureVisualization(checked as boolean)}
+                      />
+                      <Label htmlFor="capture-visualization" className="text-sm font-medium cursor-pointer">
+                        Capture visualization steps
+                      </Label>
+                    </div>
+                    <p className="text-xs text-muted-foreground -mt-2">
+                      Enable to see animated vector transformations (may slow down large attacks)
+                    </p>
+
+                    <Separator />
+
                     <Button
                       onClick={handleRunAttack}
                       disabled={isRunning}
@@ -303,6 +338,36 @@ function App() {
                 )}
               </div>
             </div>
+          </TabsContent>
+
+          <TabsContent value="visualization" className="space-y-6">
+            {visualizationSteps.length > 0 ? (
+              <>
+                <VectorVisualization 
+                  steps={visualizationSteps}
+                  dimension={visualizationSteps[0]?.basis[0]?.length || 0}
+                  onStepChange={setCurrentVisualizationStep}
+                />
+                
+                <div className="grid lg:grid-cols-2 gap-6">
+                  <MatrixHeatmap 
+                    steps={visualizationSteps}
+                    currentStep={currentVisualizationStep}
+                  />
+                  <OrthogonalityChart steps={visualizationSteps} />
+                </div>
+              </>
+            ) : (
+              <Card className="p-6 bg-card border-border">
+                <div className="text-center py-12">
+                  <ChartLine size={48} className="mx-auto mb-4 text-muted-foreground" />
+                  <h3 className="text-sm font-semibold mb-2">No Visualization Data</h3>
+                  <p className="text-xs text-muted-foreground mb-4">
+                    Enable "Capture visualization steps" and run an attack to see animated transformations
+                  </p>
+                </div>
+              </Card>
+            )}
           </TabsContent>
 
           <TabsContent value="history" className="space-y-6">

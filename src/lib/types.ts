@@ -33,3 +33,11 @@ export interface AttackTemplate {
   delta: number
   expectedOutcome: string
 }
+
+export interface LLLStep {
+  iteration: number
+  basis: number[][]
+  k: number
+  action: 'reduce' | 'swap' | 'complete'
+  description: string
+}
