@@ -9,11 +9,13 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 import { Badge } from '@/components/ui/badge'
 import { Separator } from '@/components/ui/separator'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { MagnifyingGlass, CheckCircle, XCircle, Warning, ChartLine } from '@phosphor-icons/react'
+import { MagnifyingGlass, CheckCircle, XCircle, Warning, ChartLine, Brain } from '@phosphor-icons/react'
 import { toast } from 'sonner'
 import { scanRPCForWeakSignatures, generateLatticeFromWeakSignatures, type WeakSignature, type ScanResult } from '@/lib/rpc-scanner'
 import { performBatchAnalysis, generateBatchAttackConfiguration, type BatchAnalysisResult, type SignatureCluster } from '@/lib/batch-analysis'
+import { generateAIPredictions, type MLPredictionResult } from '@/lib/ml-predictor'
 import { BatchAnalysisDisplay } from '@/components/BatchAnalysisDisplay'
+import { MLPredictionDisplay } from '@/components/MLPredictionDisplay'
 
 interface RPCScannerProps {
   onAttackGenerated: (basis: number[][], delta: number, name: string, description: string, algorithm?: 'lll' | 'bkz', blockSize?: number) => void
@@ -28,6 +30,10 @@ export function RPCScanner({ onAttackGenerated }: RPCScannerProps) {
   const [scanResult, setScanResult] = useState<ScanResult | null>(null)
   const [batchAnalysis, setBatchAnalysis] = useState<BatchAnalysisResult | null>(null)
   const [isAnalyzing, setIsAnalyzing] = useState(false)
+  const [mlPredictions, setMlPredictions] = useState<MLPredictionResult | null>(null)
+  const [isPredicting, setIsPredicting] = useState(false)
+  const [predictionFromBlock, setPredictionFromBlock] = useState('20000020')
+  const [predictionToBlock, setPredictionToBlock] = useState('20000100')
 
   const handleScan = async () => {
     const from = parseInt(fromBlock)
@@ -119,6 +125,68 @@ export function RPCScanner({ onAttackGenerated }: RPCScannerProps) {
     } else {
       toast.error('Could not generate attack from this cluster')
     }
+  }
+
+  const handleMLPrediction = async () => {
+    if (!scanResult || scanResult.allSignatures.length === 0) {
+      toast.error('Please scan blocks first to train the ML model')
+      return
+    }
+
+    const from = parseInt(predictionFromBlock)
+    const to = parseInt(predictionToBlock)
+
+    if (isNaN(from) || isNaN(to)) {
+      toast.error('Invalid prediction block numbers')
+      return
+    }
+
+    if (to < from) {
+      toast.error('End block must be greater than start block')
+      return
+    }
+
+    if (to - from > 500) {
+      toast.error('Prediction range too large. Maximum 500 blocks.')
+      return
+    }
+
+    setIsPredicting(true)
+    setMlPredictions(null)
+
+    try {
+      const predictions = await generateAIPredictions(
+        scanResult.allSignatures,
+        scanResult.weakSignatures,
+        batchAnalysis,
+        { from, to }
+      )
+
+      setMlPredictions(predictions)
+      
+      const highPriority = predictions.predictions.filter(
+        p => p.suggestedScanPriority === 'critical' || p.suggestedScanPriority === 'high'
+      ).length
+
+      toast.success(`ML predictions generated! ${highPriority} high-priority blocks identified`)
+    } catch (error) {
+      toast.error(`Prediction failed: ${error instanceof Error ? error.message : 'Unknown error'}`)
+      console.error('Prediction error:', error)
+    } finally {
+      setIsPredicting(false)
+    }
+  }
+
+  const handlePredictedBlockScan = async (blockNumber: number) => {
+    setFromBlock(blockNumber.toString())
+    setToBlock(blockNumber.toString())
+    toast.info(`Configured scan for predicted block ${blockNumber}`)
+  }
+
+  const handlePredictedRangeScan = async (from: number, to: number) => {
+    setFromBlock(from.toString())
+    setToBlock(to.toString())
+    toast.info(`Configured scan for predicted range ${from}-${to}`)
   }
 
   const handleGenerateAttack = (weakSig: WeakSignature) => {
@@ -286,12 +354,15 @@ export function RPCScanner({ onAttackGenerated }: RPCScannerProps) {
                 </div>
               </div>
 
-              <TabsList className="grid w-full grid-cols-2">
+              <TabsList className="grid w-full grid-cols-3">
                 <TabsTrigger value="individual">
                   Individual Signatures ({scanResult.weakSignatures.length})
                 </TabsTrigger>
                 <TabsTrigger value="batch" disabled={!batchAnalysis}>
                   Batch Analysis {batchAnalysis && `(${batchAnalysis.clusters.length})`}
+                </TabsTrigger>
+                <TabsTrigger value="ml-prediction">
+                  ML Predictions
                 </TabsTrigger>
               </TabsList>
 
@@ -402,6 +473,95 @@ export function RPCScanner({ onAttackGenerated }: RPCScannerProps) {
                     </p>
                   </div>
                 )}
+              </TabsContent>
+
+              <TabsContent value="ml-prediction">
+                <div className="space-y-4">
+                  <Card className="p-4 bg-secondary/30 border-border">
+                    <div className="flex items-center gap-3 mb-3">
+                      <Brain size={20} className="text-accent" weight="fill" />
+                      <h3 className="text-sm font-semibold">Configure ML Prediction</h3>
+                    </div>
+                    <p className="text-xs text-muted-foreground mb-4">
+                      Use machine learning to predict vulnerable blocks based on historical scan data
+                    </p>
+
+                    <div className="grid grid-cols-2 gap-3 mb-3">
+                      <div>
+                        <Label htmlFor="pred-from-block" className="text-xs font-medium mb-1 block">
+                          Predict From Block
+                        </Label>
+                        <Input
+                          id="pred-from-block"
+                          type="number"
+                          value={predictionFromBlock}
+                          onChange={(e) => setPredictionFromBlock(e.target.value)}
+                          placeholder="20000020"
+                          className="text-xs"
+                        />
+                      </div>
+                      <div>
+                        <Label htmlFor="pred-to-block" className="text-xs font-medium mb-1 block">
+                          Predict To Block
+                        </Label>
+                        <Input
+                          id="pred-to-block"
+                          type="number"
+                          value={predictionToBlock}
+                          onChange={(e) => setPredictionToBlock(e.target.value)}
+                          placeholder="20000100"
+                          className="text-xs"
+                        />
+                      </div>
+                    </div>
+
+                    <Alert className="mb-3">
+                      <AlertDescription className="text-xs">
+                        ML model trains on your scan results. More historical data = better predictions. Maximum 500 blocks per prediction.
+                      </AlertDescription>
+                    </Alert>
+
+                    <Button
+                      onClick={handleMLPrediction}
+                      disabled={isPredicting || !scanResult}
+                      className="w-full"
+                      size="sm"
+                    >
+                      {isPredicting ? (
+                        <>
+                          <div className="animate-spin mr-2 h-3 w-3 border-2 border-primary-foreground border-t-transparent rounded-full" />
+                          Predicting...
+                        </>
+                      ) : (
+                        <>
+                          <Brain size={14} weight="fill" />
+                          Generate ML Predictions
+                        </>
+                      )}
+                    </Button>
+                  </Card>
+
+                  {mlPredictions ? (
+                    <MLPredictionDisplay
+                      predictionResult={mlPredictions}
+                      onScanBlock={handlePredictedBlockScan}
+                      onScanRange={handlePredictedRangeScan}
+                    />
+                  ) : (
+                    <Card className="p-6 bg-card border-border">
+                      <div className="text-center py-12">
+                        <Brain size={48} className="mx-auto mb-4 text-muted-foreground" weight="fill" />
+                        <h3 className="text-sm font-semibold mb-2">No Predictions Yet</h3>
+                        <p className="text-xs text-muted-foreground">
+                          {scanResult 
+                            ? 'Configure the prediction range and generate ML predictions'
+                            : 'Scan blocks first to train the ML model with historical data'
+                          }
+                        </p>
+                      </div>
+                    </Card>
+                  )}
+                </div>
               </TabsContent>
             </Tabs>
           </Card>

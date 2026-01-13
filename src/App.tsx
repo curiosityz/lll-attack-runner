@@ -654,6 +654,72 @@ function App() {
             </Card>
 
             <Card className="p-6 bg-card border-border">
+              <h2 className="text-lg font-semibold mb-4">ML Pattern Prediction</h2>
+              <div className="space-y-4 text-sm">
+                <p>
+                  The ML Pattern Prediction system uses machine learning to forecast which unscanned blocks are most 
+                  likely to contain cryptographic vulnerabilities. By analyzing historical scan data, it identifies 
+                  patterns and prioritizes high-risk blocks for efficient scanning.
+                </p>
+                
+                <Separator />
+                
+                <div>
+                  <h3 className="font-semibold mb-2">How It Works</h3>
+                  <ul className="list-disc list-inside space-y-1 text-muted-foreground">
+                    <li><strong>Training:</strong> Learns from your historical scan results and detected vulnerabilities</li>
+                    <li><strong>Feature Extraction:</strong> Analyzes temporal patterns, address behavior, and volume anomalies</li>
+                    <li><strong>Confidence Scoring:</strong> Assigns priority levels (Critical/High/Medium/Low) to each block</li>
+                    <li><strong>AI Enhancement:</strong> Optionally uses GPT-4o-mini for improved predictions and reasoning</li>
+                    <li><strong>Vulnerability Forecasting:</strong> Predicts specific vulnerability types for each block</li>
+                  </ul>
+                </div>
+
+                <Separator />
+
+                <div>
+                  <h3 className="font-semibold mb-2">Feature Weights</h3>
+                  <ul className="list-disc list-inside space-y-1 text-muted-foreground">
+                    <li><strong>Temporal Pattern (25%):</strong> Signature activity trends and growth rates</li>
+                    <li><strong>Block Density (20%):</strong> Transaction volume in blocks</li>
+                    <li><strong>Address Frequency (20%):</strong> Concentration of activity in specific addresses</li>
+                    <li><strong>Volume Anomaly (15%):</strong> Unusual activity spikes</li>
+                    <li><strong>Cluster Proximity (10%):</strong> Distance to known pattern clusters</li>
+                    <li><strong>Weekday Pattern (10%):</strong> Temporal correlations with block hashing</li>
+                  </ul>
+                </div>
+
+                <Separator />
+
+                <div>
+                  <h3 className="font-semibold mb-2">Usage Guide</h3>
+                  <div className="space-y-2 text-muted-foreground">
+                    <p><strong>1. Gather Training Data:</strong> Scan blocks to provide historical data</p>
+                    <p><strong>2. Configure Range:</strong> Enter target block range (max 500 blocks)</p>
+                    <p><strong>3. Generate Predictions:</strong> Click "Generate ML Predictions"</p>
+                    <p><strong>4. Review Results:</strong> Check confidence scores and reasoning</p>
+                    <p><strong>5. Scan Priorities:</strong> Focus on Critical/High priority blocks</p>
+                    <p><strong>6. Validate:</strong> Scan suggested blocks to verify predictions</p>
+                    <p><strong>7. Iterate:</strong> Add new data to improve model accuracy</p>
+                  </div>
+                </div>
+
+                <Separator />
+
+                <div>
+                  <h3 className="font-semibold mb-2">Best Practices</h3>
+                  <ul className="list-disc list-inside space-y-1 text-muted-foreground">
+                    <li>Scan diverse block ranges for better training data</li>
+                    <li>Run Batch Analysis to detect clusters before predicting</li>
+                    <li>Start with high-priority predictions (Critical/High)</li>
+                    <li>Validate predictions by scanning suggested blocks</li>
+                    <li>More training data = higher accuracy</li>
+                  </ul>
+                </div>
+              </div>
+            </Card>
+
+            <Card className="p-6 bg-card border-border">
               <h2 className="text-lg font-semibold mb-4">Quick Start</h2>
               <div className="space-y-3 text-sm">
                 <div className="flex gap-3">
@@ -677,7 +743,7 @@ function App() {
                     3
                   </div>
                   <div>
-                    <strong>Configure Attack:</strong> Select algorithm (LLL/BKZ), adjust parameters, and set block size if using BKZ
+                    <strong>ML Predictions:</strong> Use machine learning to forecast vulnerable blocks and prioritize scanning
                   </div>
                 </div>
                 <div className="flex gap-3">
@@ -685,12 +751,20 @@ function App() {
                     4
                   </div>
                   <div>
-                    <strong>Run Attack:</strong> Click "Run Attack" to execute the lattice reduction
+                    <strong>Configure Attack:</strong> Select algorithm (LLL/BKZ), adjust parameters, and set block size if using BKZ
                   </div>
                 </div>
                 <div className="flex gap-3">
                   <div className="flex-shrink-0 w-6 h-6 rounded-full bg-primary text-primary-foreground flex items-center justify-center text-xs font-bold">
                     5
+                  </div>
+                  <div>
+                    <strong>Run Attack:</strong> Click "Run Attack" to execute the lattice reduction
+                  </div>
+                </div>
+                <div className="flex gap-3">
+                  <div className="flex-shrink-0 w-6 h-6 rounded-full bg-primary text-primary-foreground flex items-center justify-center text-xs font-bold">
+                    6
                   </div>
                   <div>
                     <strong>Analyze Results:</strong> View the reduced basis, solution vector, and visualizations

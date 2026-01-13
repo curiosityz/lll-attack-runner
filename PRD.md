@@ -68,6 +68,20 @@ An interactive web application for running advanced lattice basis reduction atta
 - **Progression**: Enable capture → Run attack → View visualization tab → Scrub through timeline or play animation → Observe vector changes, swaps, and reductions → Analyze orthogonality/norm charts
 - **Success criteria**: Smooth animations showing vector transformations, clear indication of swap vs reduce operations, synchronized matrix heatmap and progress charts
 
+### Batch Signature Analysis
+- **Functionality**: Analyze multiple scanned signatures simultaneously to detect cross-transaction patterns
+- **Purpose**: Identify vulnerabilities that only appear when examining multiple signatures together (clusters, sequences, correlations)
+- **Trigger**: User clicks "Run Batch Analysis" after scanning blocks with signatures
+- **Progression**: Scan signatures → Run batch analysis → Detect pattern clusters → View statistical analysis → Generate attacks from clusters → Execute with optimal algorithm (LLL/BKZ) and parameters
+- **Success criteria**: Detects nonce reuse clusters, sequential patterns, bit bias, temporal correlations, and address clustering with confidence scores and actionable recommendations
+
+### ML Pattern Prediction
+- **Functionality**: Machine learning system that predicts vulnerable blocks in unscanned ranges based on historical scan data
+- **Purpose**: Intelligently prioritize scanning efforts by forecasting where vulnerabilities are most likely to occur
+- **Trigger**: User navigates to ML Predictions tab and configures target block range
+- **Progression**: Scan blocks (training data) → Configure prediction range → Generate ML predictions → View confidence scores and reasoning → Scan suggested high-priority blocks → Validate predictions
+- **Success criteria**: Model trains on historical patterns, predicts vulnerability locations with confidence scores, provides reasoning for predictions, identifies high-priority blocks, and improves accuracy with more training data
+
 ## Edge Case Handling
 
 - **Invalid Matrix Input**: Detect non-numeric, malformed, or non-square matrices and show inline validation errors
@@ -78,7 +92,9 @@ An interactive web application for running advanced lattice basis reduction atta
 - **Failed Attacks**: Clearly distinguish between algorithm completion and attack success/failure
 - **RPC Connection Failures**: Handle network errors, invalid endpoints, rate limits gracefully with clear error messages
 - **Empty Signature Scans**: When no vulnerabilities found, show positive confirmation rather than error state
-- **Invalid Block Ranges**: Validate block numbers and enforce maximum scan range (1000 blocks)
+- **Invalid Block Ranges**: Validate block numbers and enforce maximum scan range (1000 blocks for scanning, 500 for predictions)
+- **Insufficient Training Data**: ML predictions gracefully handle limited historical data and communicate confidence limitations
+- **AI Enhancement Failures**: ML system falls back to statistical model if AI enhancement unavailable
 
 ## Design Direction
 
