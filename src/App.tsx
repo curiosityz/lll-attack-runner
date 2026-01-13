@@ -24,6 +24,7 @@ import { MatrixHeatmap } from '@/components/MatrixHeatmap'
 import { OrthogonalityChart } from '@/components/OrthogonalityChart'
 import { RPCScanner } from '@/components/RPCScanner'
 import { AutomationControl } from '@/components/AutomationControl'
+import { BlockRangeTester } from '@/components/BlockRangeTester'
 
 function App() {
   const [attackHistory, setAttackHistory] = useKV<AttackHistory[]>('attack-history', [])
@@ -200,12 +201,16 @@ function App() {
             <h1 className="text-3xl font-bold tracking-tight">Advanced LLL/BKZ Attack Runner</h1>
           </div>
           <p className="text-sm text-muted-foreground">
-            Lattice basis reduction with RPC signature scanning, ML predictions, and <strong>full workflow automation</strong>
+            Lattice basis reduction with RPC signature scanning, ML predictions, full workflow automation, and <strong>multi-range testing</strong>
           </p>
         </header>
 
-        <Tabs defaultValue="attack" className="space-y-6">
-          <TabsList className="grid w-full grid-cols-6 max-w-4xl">
+        <Tabs defaultValue="range-tester" className="space-y-6">
+          <TabsList className="grid w-full grid-cols-7 max-w-5xl">
+            <TabsTrigger value="range-tester">
+              <ListBullets size={16} className="mr-2" />
+              Range Tester
+            </TabsTrigger>
             <TabsTrigger value="attack">
               <Play size={16} className="mr-2" />
               Attack
@@ -231,6 +236,14 @@ function App() {
               Help
             </TabsTrigger>
           </TabsList>
+
+          <TabsContent value="range-tester" className="space-y-6">
+            <BlockRangeTester 
+              onAttackHistoryUpdate={(history) => {
+                setAttackHistory((current) => [...history, ...(current || [])].slice(0, 100))
+              }}
+            />
+          </TabsContent>
 
           <TabsContent value="attack" className="space-y-6">
             <div className="grid lg:grid-cols-2 gap-6">
@@ -533,6 +546,83 @@ function App() {
 
           <TabsContent value="help" className="space-y-6">
             <Card className="p-6 bg-card border-border">
+              <h2 className="text-lg font-semibold mb-4">Block Range Tester</h2>
+              <div className="space-y-4 text-sm">
+                <p>
+                  The <strong>Block Range Tester</strong> allows you to test continuous automation across 
+                  multiple block ranges simultaneously. This is essential for validating that the automation 
+                  engine works correctly with various blockchain data and RPC configurations.
+                </p>
+                
+                <Separator />
+                
+                <div>
+                  <h3 className="font-semibold mb-2">Quick Setup</h3>
+                  <div className="space-y-2 text-muted-foreground">
+                    <p>1. Configure your RPC endpoint (supports any Ethereum-compatible node)</p>
+                    <p>2. Add preset ranges (Recent, Mid 2024, Early 2024, etc.) with one click</p>
+                    <p>3. Or create custom ranges with specific start/end blocks and batch sizes</p>
+                    <p>4. Click "Run All" to test all ranges sequentially</p>
+                    <p>5. Monitor progress with real-time metrics and status updates</p>
+                  </div>
+                </div>
+
+                <Separator />
+
+                <div>
+                  <h3 className="font-semibold mb-2">What It Tests</h3>
+                  <ul className="list-disc list-inside space-y-1 text-muted-foreground">
+                    <li><strong>RPC Connectivity:</strong> Validates endpoint availability and response format</li>
+                    <li><strong>Block Scanning:</strong> Tests signature extraction across different time periods</li>
+                    <li><strong>Pattern Detection:</strong> Verifies batch analysis works with varying data density</li>
+                    <li><strong>Attack Execution:</strong> Confirms LLL/BKZ algorithms run correctly on detected weaknesses</li>
+                    <li><strong>Error Handling:</strong> Tests recovery from RPC failures and malformed data</li>
+                    <li><strong>Performance:</strong> Measures scan time and throughput across ranges</li>
+                  </ul>
+                </div>
+
+                <Separator />
+
+                <div>
+                  <h3 className="font-semibold mb-2">Understanding Results</h3>
+                  <ul className="list-disc list-inside space-y-1 text-muted-foreground">
+                    <li><strong>Completed:</strong> Range scanned successfully, all blocks processed</li>
+                    <li><strong>Failed:</strong> RPC error or scan issue - check error message</li>
+                    <li><strong>Weaknesses Found:</strong> Number of vulnerable signatures detected</li>
+                    <li><strong>Attacks Executed:</strong> Number of successful LLL/BKZ attack runs</li>
+                    <li><strong>Time Elapsed:</strong> Total duration for the range in seconds</li>
+                  </ul>
+                </div>
+
+                <Separator />
+
+                <div>
+                  <h3 className="font-semibold mb-2">Best Practices</h3>
+                  <ul className="list-disc list-inside space-y-1 text-muted-foreground">
+                    <li>Start with small ranges (100 blocks) to test RPC connectivity</li>
+                    <li>Use recent blocks (21M+) for faster responses from most RPC providers</li>
+                    <li>Test different time periods to find data-rich ranges</li>
+                    <li>Adjust batch size based on RPC rate limits (10-20 typical)</li>
+                    <li>Monitor failures and switch RPC endpoints if needed</li>
+                    <li>Clear completed ranges periodically to keep UI clean</li>
+                  </ul>
+                </div>
+
+                <Separator />
+
+                <div>
+                  <h3 className="font-semibold mb-2">RPC Endpoint Tips</h3>
+                  <ul className="list-disc list-inside space-y-1 text-muted-foreground">
+                    <li><strong>Public RPCs:</strong> https://eth.llamarpc.com, https://rpc.ankr.com/eth</li>
+                    <li><strong>Private RPCs:</strong> Add your API key in the URL query string</li>
+                    <li><strong>Rate Limits:</strong> Free endpoints may throttle - reduce batch size if errors occur</li>
+                    <li><strong>Latency:</strong> Choose geographically close endpoints for faster responses</li>
+                  </ul>
+                </div>
+              </div>
+            </Card>
+
+            <Card className="p-6 bg-card border-border">
               <h2 className="text-lg font-semibold mb-4">About LLL & BKZ Algorithms</h2>
               <div className="space-y-4 text-sm">
                 <p>
@@ -828,7 +918,7 @@ function App() {
                     1
                   </div>
                   <div>
-                    <strong>Choose a Template:</strong> Click "Templates" to load a pre-configured attack example
+                    <strong>Test Your Setup:</strong> Use Range Tester to validate RPC connectivity and automation across multiple block ranges
                   </div>
                 </div>
                 <div className="flex gap-3">
@@ -836,7 +926,7 @@ function App() {
                     2
                   </div>
                   <div>
-                    <strong>Automated Workflow:</strong> Use the Automation Engine to continuously scan, analyze, and attack
+                    <strong>Choose a Template:</strong> Click "Templates" to load a pre-configured attack example
                   </div>
                 </div>
                 <div className="flex gap-3">
@@ -844,7 +934,7 @@ function App() {
                     3
                   </div>
                   <div>
-                    <strong>Manual Scan:</strong> Use RPC Scanner to detect weak signatures, then run Batch Analysis to find cross-transaction patterns
+                    <strong>Automated Workflow:</strong> Use the Automation Engine to continuously scan, analyze, and attack
                   </div>
                 </div>
                 <div className="flex gap-3">
@@ -852,7 +942,7 @@ function App() {
                     4
                   </div>
                   <div>
-                    <strong>ML Predictions:</strong> Use machine learning to forecast vulnerable blocks and prioritize scanning
+                    <strong>Manual Scan:</strong> Use RPC Scanner to detect weak signatures, then run Batch Analysis to find cross-transaction patterns
                   </div>
                 </div>
                 <div className="flex gap-3">
@@ -860,12 +950,20 @@ function App() {
                     5
                   </div>
                   <div>
-                    <strong>Configure Attack:</strong> Select algorithm (LLL/BKZ), adjust parameters, and set block size if using BKZ
+                    <strong>ML Predictions:</strong> Use machine learning to forecast vulnerable blocks and prioritize scanning
                   </div>
                 </div>
                 <div className="flex gap-3">
                   <div className="flex-shrink-0 w-6 h-6 rounded-full bg-primary text-primary-foreground flex items-center justify-center text-xs font-bold">
                     6
+                  </div>
+                  <div>
+                    <strong>Configure Attack:</strong> Select algorithm (LLL/BKZ), adjust parameters, and set block size if using BKZ
+                  </div>
+                </div>
+                <div className="flex gap-3">
+                  <div className="flex-shrink-0 w-6 h-6 rounded-full bg-primary text-primary-foreground flex items-center justify-center text-xs font-bold">
+                    7
                   </div>
                   <div>
                     <strong>Run & Analyze:</strong> Execute attacks and view results, visualizations, and learned patterns
