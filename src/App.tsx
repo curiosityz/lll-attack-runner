@@ -663,6 +663,19 @@ function App() {
                     based on pattern complexity.
                   </p>
                 </div>
+
+                <Separator />
+
+                <div>
+                  <h3 className="font-semibold mb-2">Troubleshooting RPC Issues</h3>
+                  <ul className="list-disc list-inside space-y-1 text-muted-foreground">
+                    <li><strong>Connection Timeout:</strong> RPC endpoint may be slow or rate-limiting requests. Try a different provider.</li>
+                    <li><strong>No Transactions Found:</strong> Recent blocks may have few transactions. Try older block ranges (e.g., 19000000-19000100).</li>
+                    <li><strong>HTTP 429 Errors:</strong> Rate limit exceeded. Reduce "Blocks Per Scan" or use a paid RPC provider.</li>
+                    <li><strong>403/401 Errors:</strong> Check your API key is correct in the URL.</li>
+                    <li><strong>Continuous Scan Not Working:</strong> Make sure "Enable Continuous Scanning" is toggled ON before clicking "Start Auto".</li>
+                  </ul>
+                </div>
               </div>
             </Card>
 
@@ -727,6 +740,79 @@ function App() {
                     <li>Start with high-priority predictions (Critical/High)</li>
                     <li>Validate predictions by scanning suggested blocks</li>
                     <li>More training data = higher accuracy</li>
+                  </ul>
+                </div>
+              </div>
+            </Card>
+
+            <Card className="p-6 bg-card border-border">
+              <h2 className="text-lg font-semibold mb-4">Full Automation Workflow</h2>
+              <div className="space-y-4 text-sm">
+                <p>
+                  The <strong>Automation Engine</strong> provides a fully automated workflow that continuously scans 
+                  blockchain RPC endpoints, detects vulnerabilities, executes attacks, and learns optimal configurations.
+                </p>
+                
+                <Separator />
+                
+                <div>
+                  <h3 className="font-semibold mb-2">Two Modes of Operation</h3>
+                  <ul className="list-disc list-inside space-y-1 text-muted-foreground">
+                    <li><strong>Run Once:</strong> Execute a single workflow cycle (scan → analyze → attack → learn)</li>
+                    <li><strong>Continuous Mode:</strong> Enable "Continuous Scanning" and click "Start Auto" to run indefinitely at set intervals</li>
+                  </ul>
+                </div>
+
+                <Separator />
+
+                <div>
+                  <h3 className="font-semibold mb-2">Quick Setup</h3>
+                  <div className="space-y-2 text-muted-foreground">
+                    <p>1. Configure your RPC endpoint (supports public and private nodes)</p>
+                    <p>2. Set the starting block number (default: 21000000)</p>
+                    <p>3. Adjust blocks per scan (default: 10, larger = slower but more comprehensive)</p>
+                    <p>4. Enable features: Auto Analysis, Auto Attack, Auto Learning</p>
+                    <p>5. Click "Run Once" to test, or enable "Continuous Scanning" and "Start Auto"</p>
+                  </div>
+                </div>
+
+                <Separator />
+
+                <div>
+                  <h3 className="font-semibold mb-2">What It Does</h3>
+                  <ul className="list-disc list-inside space-y-1 text-muted-foreground">
+                    <li><strong>Scanning:</strong> Fetches blocks from RPC and analyzes ECDSA signatures</li>
+                    <li><strong>Analysis:</strong> Detects patterns across multiple signatures (batch analysis)</li>
+                    <li><strong>Prediction:</strong> Uses ML to predict which future blocks contain vulnerabilities</li>
+                    <li><strong>Attacking:</strong> Automatically executes LLL/BKZ attacks on detected weaknesses</li>
+                    <li><strong>Learning:</strong> Identifies optimal parameters (delta, algorithm, block size) for future attacks</li>
+                  </ul>
+                </div>
+
+                <Separator />
+
+                <div>
+                  <h3 className="font-semibold mb-2">Monitoring Progress</h3>
+                  <p className="text-muted-foreground mb-2">
+                    Watch the real-time metrics and activity history to see:
+                  </p>
+                  <ul className="list-disc list-inside space-y-1 text-muted-foreground">
+                    <li>Current phase (scanning, analyzing, attacking, learning)</li>
+                    <li>Block ranges being scanned</li>
+                    <li>Total blocks scanned and weaknesses found</li>
+                    <li>Attack execution success rate</li>
+                    <li>Learned patterns with optimal configurations</li>
+                  </ul>
+                </div>
+
+                <Separator />
+
+                <div>
+                  <h3 className="font-semibold mb-2">Advanced Configuration</h3>
+                  <ul className="list-disc list-inside space-y-1 text-muted-foreground">
+                    <li><strong>Priority Threshold:</strong> Only attack vulnerabilities above this severity</li>
+                    <li><strong>Max Concurrent Attacks:</strong> Run multiple attacks in parallel (1-10)</li>
+                    <li><strong>Scan Interval:</strong> Time between automatic scans in continuous mode</li>
                   </ul>
                 </div>
               </div>

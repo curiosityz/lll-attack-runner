@@ -71,6 +71,15 @@ export function AutomationControl({ onAttackHistoryUpdate }: AutomationControlPr
     }
   }, [config])
 
+  useEffect(() => {
+    if (engineRef.current) {
+      const updatedConfig = engineRef.current.getConfig()
+      if (updatedConfig.startBlock !== config?.startBlock) {
+        setConfig((c) => ({ ...(c || DEFAULT_CONFIG), startBlock: updatedConfig.startBlock }))
+      }
+    }
+  }, [state?.totalScanned])
+
   const handleStart = () => {
     if (engineRef.current) {
       engineRef.current.start()
@@ -156,7 +165,14 @@ export function AutomationControl({ onAttackHistoryUpdate }: AutomationControlPr
           <div className="flex items-center gap-3">
             <Lightning size={24} className="text-accent" weight="fill" />
             <div>
-              <h2 className="text-lg font-semibold">Automation Engine</h2>
+              <div className="flex items-center gap-2">
+                <h2 className="text-lg font-semibold">Automation Engine</h2>
+                {config?.enableAutoScan && state?.isRunning && (
+                  <Badge variant="outline" className="text-xs bg-accent/10 text-accent border-accent/30">
+                    Continuous Mode
+                  </Badge>
+                )}
+              </div>
               <p className="text-xs text-muted-foreground">
                 Automated scanning, analysis, and attack execution
               </p>
@@ -193,6 +209,11 @@ export function AutomationControl({ onAttackHistoryUpdate }: AutomationControlPr
               <div className="flex-1">
                 <AlertDescription>
                   <span className="font-medium capitalize">{state.currentPhase}</span> in progress
+                  {state.currentPhase === 'scanning' && config?.startBlock && (
+                    <span className="text-muted-foreground ml-2">
+                      (Blocks {config.startBlock} - {config.startBlock + (config.scanBatchSize || 10)})
+                    </span>
+                  )}
                 </AlertDescription>
               </div>
               <Progress value={state.progress} className="w-32" />
@@ -231,6 +252,14 @@ export function AutomationControl({ onAttackHistoryUpdate }: AutomationControlPr
             </div>
           </Card>
         </div>
+
+        {!state?.isRunning && config?.startBlock && (
+          <Alert className="mb-4">
+            <AlertDescription className="text-xs">
+              <strong>Next scan range:</strong> Blocks {config.startBlock} - {config.startBlock + (config.scanBatchSize || 10) - 1}
+            </AlertDescription>
+          </Alert>
+        )}
 
         <Separator className="my-6" />
 
@@ -298,6 +327,25 @@ export function AutomationControl({ onAttackHistoryUpdate }: AutomationControlPr
           <Separator />
 
           <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <div>
+                <Label htmlFor="enable-auto-scan" className="text-sm font-medium cursor-pointer">
+                  Enable Continuous Scanning
+                </Label>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  Automatically scan new blocks at regular intervals
+                </p>
+              </div>
+              <Switch
+                id="enable-auto-scan"
+                checked={config?.enableAutoScan ?? DEFAULT_CONFIG.enableAutoScan}
+                onCheckedChange={(checked) => setConfig((c) => ({ ...(c || DEFAULT_CONFIG), enableAutoScan: checked }))}
+                disabled={state?.isRunning}
+              />
+            </div>
+
+            <Separator />
+
             <div className="flex items-center justify-between">
               <Label htmlFor="auto-analyze" className="text-sm font-medium cursor-pointer">
                 Auto Batch Analysis

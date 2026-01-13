@@ -139,7 +139,17 @@ export class AutomationEngine {
     if (this.state.isRunning) return
 
     this.updateState({ isRunning: true, lastError: undefined })
-    this.addHistory('start', 'Automation engine started')
+    this.addHistory('start', `Automation engine started - will scan blocks starting from ${this.config.startBlock || 21000000}`)
+    
+    console.log('[Automation] Engine started')
+    console.log('[Automation] Config:', {
+      rpcUrl: this.config.rpcUrl,
+      startBlock: this.config.startBlock,
+      scanBatchSize: this.config.scanBatchSize,
+      autoAnalyze: this.config.autoAnalyze,
+      autoAttack: this.config.autoAttack,
+      autoLearn: this.config.autoLearn
+    })
 
     if (this.config.enableAutoScan) {
       this.scheduleNextScan()
@@ -199,9 +209,12 @@ export class AutomationEngine {
     let currentBlock = customRange?.from || this.config.startBlock || 21000000
     const endBlock = customRange?.to || currentBlock + this.config.scanBatchSize
 
+    console.log(`[Automation] Starting workflow - scanning blocks ${currentBlock} to ${endBlock}`)
+
     this.updateState({ currentPhase: 'scanning', progress: 0 })
     
     try {
+      console.log('[Automation] Calling scanRPCForWeakSignatures...')
       result.scanResult = await scanRPCForWeakSignatures(
         this.config.rpcUrl,
         currentBlock,
@@ -211,17 +224,33 @@ export class AutomationEngine {
         }
       )
 
+      console.log('[Automation] Scan complete:', {
+        scanned: result.scanResult.scanned,
+        weakSignatures: result.scanResult.weakSignatures.length,
+        allSignatures: result.scanResult.allSignatures.length
+      })
+
       this.updateState({
         totalScanned: this.state.totalScanned + result.scanResult.scanned,
         totalWeaknessesFound: this.state.totalWeaknessesFound + result.scanResult.weakSignatures.length
       })
 
+      if (!customRange) {
+        this.config.startBlock = endBlock + 1
+        console.log('[Automation] Updated startBlock to:', this.config.startBlock)
+      }
+
+      this.addHistory('scan-complete', `Scanned blocks ${currentBlock}-${endBlock}: ${result.scanResult.weakSignatures.length} weakness(es) found`, true, {
+        blocksScanned: { from: currentBlock, to: endBlock },
+        weaknessesFound: result.scanResult.weakSignatures.length
+      })
+
       if (result.scanResult.weakSignatures.length === 0) {
-        this.addHistory('scan-complete', `Scanned blocks ${currentBlock}-${endBlock}: No weaknesses found`, true, {
-          blocksScanned: { from: currentBlock, to: endBlock }
-        })
+        console.log('[Automation] No weaknesses found, ending workflow')
         return result
       }
+
+      console.log('[Automation] Found weaknesses, continuing to analysis phase...')
 
       if (this.config.autoAnalyze && result.scanResult.allSignatures.length > 1) {
         this.updateState({ currentPhase: 'analyzing', progress: 25 })
@@ -271,9 +300,13 @@ export class AutomationEngine {
 
       this.updateState({ currentPhase: 'idle', progress: 100 })
       
+      console.log('[Automation] Workflow complete')
       return result
     } catch (error) {
-      this.updateState({ currentPhase: 'idle', lastError: error instanceof Error ? error.message : 'Unknown error' })
+      const errorMsg = error instanceof Error ? error.message : 'Unknown error'
+      console.error('[Automation] Workflow error:', errorMsg, error)
+      this.updateState({ currentPhase: 'idle', lastError: errorMsg })
+      this.addHistory('workflow-error', `Workflow failed: ${errorMsg}`, false)
       throw error
     }
   }
@@ -564,6 +597,10 @@ export class AutomationEngine {
 
   getState(): AutomationState {
     return { ...this.state }
+  }
+
+  getConfig(): AutomationConfig {
+    return { ...this.config }
   }
 
   updateConfig(updates: Partial<AutomationConfig>) {

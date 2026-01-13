@@ -248,6 +248,10 @@ export async function scanRPCForWeakSignatures(
         onProgress(scannedCount, totalBlocks)
       }
       
+      if (blockNum < toBlock) {
+        await new Promise(resolve => setTimeout(resolve, 50))
+      }
+      
     } catch (error) {
       consecutiveErrors++
       totalErrors++
