@@ -28,26 +28,36 @@ export function BlockchainStatus({ rpcUrl }: BlockchainStatusProps) {
       try {
         setStatus('connecting')
 
+        const headers: Record<string, string> = {
+          'Content-Type': 'application/json',
+        }
+
+        if (rpcUrl.includes('infura.io') || rpcUrl.includes('alchemy.com') || rpcUrl.includes('quicknode.pro')) {
+          headers['Accept'] = 'application/json'
+        }
+
         const [blockResponse, chainResponse] = await Promise.all([
           fetch(rpcUrl, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers,
             body: JSON.stringify({
               jsonrpc: '2.0',
               method: 'eth_blockNumber',
               params: [],
               id: 1,
             }),
+            signal: AbortSignal.timeout(10000)
           }),
           fetch(rpcUrl, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers,
             body: JSON.stringify({
               jsonrpc: '2.0',
               method: 'eth_chainId',
               params: [],
               id: 2,
             }),
+            signal: AbortSignal.timeout(10000)
           }),
         ])
 

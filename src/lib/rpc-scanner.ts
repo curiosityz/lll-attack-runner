@@ -69,28 +69,49 @@ const SECP256K1_HALF_N = SECP256K1_N / 2n
 
 async function fetchJSON(url: string, body: any): Promise<any> {
   try {
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+    }
+    
+    if (url.includes('infura.io') || url.includes('alchemy.com') || url.includes('quicknode.pro')) {
+      headers['Accept'] = 'application/json'
+    }
+    
     const response = await fetch(url, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(body)
+      headers,
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(30000)
     })
     
     if (!response.ok) {
-      const errorText = await response.text()
-      throw new Error(`HTTP ${response.status}: ${response.statusText} - ${errorText}`)
+      let errorText = ''
+      try {
+        errorText = await response.text()
+      } catch (e) {
+        errorText = 'Unable to read error response'
+      }
+      throw new Error(`HTTP ${response.status}: ${response.statusText}${errorText ? ' - ' + errorText.slice(0, 200) : ''}`)
+    }
+    
+    const contentType = response.headers.get('content-type')
+    if (!contentType || !contentType.includes('application/json')) {
+      const text = await response.text()
+      throw new Error(`RPC endpoint returned non-JSON response: ${text.slice(0, 200)}`)
     }
     
     const data = await response.json()
     
     if (data.error) {
-      throw new Error(`RPC Error ${data.error.code}: ${data.error.message}`)
+      throw new Error(`RPC Error ${data.error.code || 'UNKNOWN'}: ${data.error.message || 'Unknown error'}`)
     }
     
     return data
   } catch (error) {
     if (error instanceof Error) {
+      if (error.name === 'AbortError' || error.message.includes('signal timed out')) {
+        throw new Error('RPC request timed out after 30 seconds. The endpoint may be overloaded or unreachable.')
+      }
       throw error
     }
     throw new Error(`RPC request failed: ${String(error)}`)
@@ -112,9 +133,28 @@ export async function scanRPCForWeakSignatures(
   const totalBlocks = toBlock - fromBlock + 1
   let consecutiveErrors = 0
   let totalErrors = 0
+  let totalTransactions = 0
   
-  if (!rpcUrl || rpcUrl.includes('YOUR_API_KEY')) {
+  if (!rpcUrl || rpcUrl.trim() === '') {
     throw new Error('Invalid RPC URL. Please provide a valid Ethereum RPC endpoint.')
+  }
+  
+  if (rpcUrl.includes('YOUR_API_KEY') || rpcUrl.includes('YOUR_PROJECT_ID')) {
+    throw new Error('Please replace YOUR_API_KEY or YOUR_PROJECT_ID with your actual credentials.')
+  }
+  
+  console.log(`Starting scan: blocks ${fromBlock}-${toBlock} (${totalBlocks} blocks) on ${rpcUrl}`)
+  
+  try {
+    const testBlock = await fetchJSON(rpcUrl, {
+      jsonrpc: '2.0',
+      method: 'eth_blockNumber',
+      params: [],
+      id: 1
+    })
+    console.log('RPC connection successful, latest block:', parseInt(testBlock.result, 16))
+  } catch (error) {
+    throw new Error(`Failed to connect to RPC endpoint: ${error instanceof Error ? error.message : 'Unknown error'}. Please verify the URL and your network connection.`)
   }
   
   for (let blockNum = fromBlock; blockNum <= toBlock; blockNum++) {
@@ -145,12 +185,17 @@ export async function scanRPCForWeakSignatures(
         continue
       }
       
+      let blockTxCount = 0
+      
       for (const tx of block.transactions) {
         if (typeof tx === 'string') {
           continue
         }
         
         if (!tx.r || !tx.s || !tx.v) continue
+        
+        blockTxCount++
+        totalTransactions++
         
         const signature: RPCSignature = {
           r: tx.r,
@@ -193,6 +238,10 @@ export async function scanRPCForWeakSignatures(
         signatureMap.get(rHex)!.push(signature)
       }
       
+      if (blockNum % 10 === 0 || blockNum === toBlock) {
+        console.log(`Scanned block ${blockNum}: ${blockTxCount} transactions (${totalTransactions} total so far)`)
+      }
+      
       consecutiveErrors = 0
       scannedCount++
       if (onProgress) {
@@ -218,6 +267,8 @@ export async function scanRPCForWeakSignatures(
       }
     }
   }
+  
+  console.log(`Scan complete: ${totalTransactions} transactions analyzed across ${scannedCount} blocks`)
   
   for (const [rValue, signatures] of signatureMap.entries()) {
     if (signatures.length > 1) {

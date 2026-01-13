@@ -304,10 +304,23 @@ export function RPCScanner({ onAttackGenerated }: RPCScannerProps) {
               >
                 Cloudflare
               </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="text-xs"
+                onClick={() => setRpcUrl('https://1rpc.io/eth')}
+              >
+                1RPC
+              </Button>
             </div>
-            <p className="text-xs text-muted-foreground mt-2">
-              Click a button to use public endpoints, or enter your own Infura/Alchemy URL
-            </p>
+            <Alert className="mt-3">
+              <AlertDescription className="text-xs">
+                <strong>Private RPC endpoints:</strong> Supports Infura, Alchemy, QuickNode, Google Cloud Blockchain RPC, and other providers. 
+                Just paste your full URL with API key (e.g., <code className="text-accent">https://mainnet.infura.io/v3/YOUR_KEY</code> or 
+                <code className="text-accent ml-1">https://blockchain.googleapis.com/v1/projects/PROJECT/locations/LOCATION/endpoints/ENDPOINT/rpc?key=API_KEY</code>)
+              </AlertDescription>
+            </Alert>
           </div>
 
           <div className="grid grid-cols-2 gap-4">
@@ -360,7 +373,7 @@ export function RPCScanner({ onAttackGenerated }: RPCScannerProps) {
               </div>
               <Progress value={scanProgress} className="h-2" />
               <p className="text-xs text-muted-foreground text-center">
-                Fetching transactions and analyzing signatures...
+                Fetching transactions and analyzing signatures... Check console for detailed progress.
               </p>
             </div>
           )}
@@ -394,7 +407,13 @@ export function RPCScanner({ onAttackGenerated }: RPCScannerProps) {
                 <h2 className="text-lg font-semibold">Scan Results</h2>
                 <div className="flex items-center gap-2">
                   <Badge variant="outline" className="text-xs">
-                    {scanResult.scanned} blocks scanned in {(scanResult.duration / 1000).toFixed(2)}s
+                    {scanResult.scanned} blocks
+                  </Badge>
+                  <Badge variant="outline" className="text-xs">
+                    {scanResult.allSignatures.length} signatures
+                  </Badge>
+                  <Badge variant="outline" className="text-xs">
+                    {(scanResult.duration / 1000).toFixed(2)}s
                   </Badge>
                   {scanResult.weakSignatures.length > 0 && (
                     <Button
