@@ -10,7 +10,7 @@ import { Alert, AlertDescription } from '@/components/ui/alert'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Separator } from '@/components/ui/separator'
 import { Checkbox } from '@/components/ui/checkbox'
-import { Play, Lightbulb, Calculator, ListBullets, ChartLine, CloudArrowDown } from '@phosphor-icons/react'
+import { Play, Lightbulb, Calculator, ListBullets, ChartLine, CloudArrowDown, Lightning } from '@phosphor-icons/react'
 import { toast } from 'sonner'
 import { AttackHistory, AttackType, AttackTemplate, LLLStep, AlgorithmType } from '@/lib/types'
 import { runLLL, parseBasisFromString } from '@/lib/lll'
@@ -23,6 +23,7 @@ import { VectorVisualization } from '@/components/VectorVisualization'
 import { MatrixHeatmap } from '@/components/MatrixHeatmap'
 import { OrthogonalityChart } from '@/components/OrthogonalityChart'
 import { RPCScanner } from '@/components/RPCScanner'
+import { AutomationControl } from '@/components/AutomationControl'
 
 function App() {
   const [attackHistory, setAttackHistory] = useKV<AttackHistory[]>('attack-history', [])
@@ -199,12 +200,12 @@ function App() {
             <h1 className="text-3xl font-bold tracking-tight">Advanced LLL/BKZ Attack Runner</h1>
           </div>
           <p className="text-sm text-muted-foreground">
-            Lattice basis reduction with RPC signature scanning and automated attack generation
+            Lattice basis reduction with RPC signature scanning, ML predictions, and <strong>full workflow automation</strong>
           </p>
         </header>
 
         <Tabs defaultValue="attack" className="space-y-6">
-          <TabsList className="grid w-full grid-cols-5 max-w-3xl">
+          <TabsList className="grid w-full grid-cols-6 max-w-4xl">
             <TabsTrigger value="attack">
               <Play size={16} className="mr-2" />
               Attack
@@ -212,6 +213,10 @@ function App() {
             <TabsTrigger value="scanner">
               <CloudArrowDown size={16} className="mr-2" />
               RPC Scanner
+            </TabsTrigger>
+            <TabsTrigger value="automation">
+              <Lightning size={16} className="mr-2" />
+              Automation
             </TabsTrigger>
             <TabsTrigger value="visualization" disabled={visualizationSteps.length === 0}>
               <ChartLine size={16} className="mr-2" />
@@ -447,6 +452,14 @@ function App() {
 
           <TabsContent value="scanner" className="space-y-6">
             <RPCScanner onAttackGenerated={handleRPCAttackGenerated} />
+          </TabsContent>
+
+          <TabsContent value="automation" className="space-y-6">
+            <AutomationControl 
+              onAttackHistoryUpdate={(history) => {
+                setAttackHistory((current) => [...history, ...(current || [])].slice(0, 100))
+              }}
+            />
           </TabsContent>
 
           <TabsContent value="visualization" className="space-y-6">
@@ -735,7 +748,7 @@ function App() {
                     2
                   </div>
                   <div>
-                    <strong>Scan & Analyze:</strong> Use RPC Scanner to detect weak signatures, then run Batch Analysis to find cross-transaction patterns
+                    <strong>Automated Workflow:</strong> Use the Automation Engine to continuously scan, analyze, and attack
                   </div>
                 </div>
                 <div className="flex gap-3">
@@ -743,7 +756,7 @@ function App() {
                     3
                   </div>
                   <div>
-                    <strong>ML Predictions:</strong> Use machine learning to forecast vulnerable blocks and prioritize scanning
+                    <strong>Manual Scan:</strong> Use RPC Scanner to detect weak signatures, then run Batch Analysis to find cross-transaction patterns
                   </div>
                 </div>
                 <div className="flex gap-3">
@@ -751,7 +764,7 @@ function App() {
                     4
                   </div>
                   <div>
-                    <strong>Configure Attack:</strong> Select algorithm (LLL/BKZ), adjust parameters, and set block size if using BKZ
+                    <strong>ML Predictions:</strong> Use machine learning to forecast vulnerable blocks and prioritize scanning
                   </div>
                 </div>
                 <div className="flex gap-3">
@@ -759,7 +772,7 @@ function App() {
                     5
                   </div>
                   <div>
-                    <strong>Run Attack:</strong> Click "Run Attack" to execute the lattice reduction
+                    <strong>Configure Attack:</strong> Select algorithm (LLL/BKZ), adjust parameters, and set block size if using BKZ
                   </div>
                 </div>
                 <div className="flex gap-3">
@@ -767,7 +780,7 @@ function App() {
                     6
                   </div>
                   <div>
-                    <strong>Analyze Results:</strong> View the reduced basis, solution vector, and visualizations
+                    <strong>Run & Analyze:</strong> Execute attacks and view results, visualizations, and learned patterns
                   </div>
                 </div>
               </div>

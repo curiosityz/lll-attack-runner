@@ -1,8 +1,18 @@
-# Advanced LLL/BKZ Attack Runner with ML Pattern Prediction
+# Advanced LLL/BKZ Attack Runner with Full Automation
 
-An interactive web application for running advanced lattice basis reduction attacks (LLL, BKZ) on cryptographic problems, featuring RPC blockchain signature scanning, automated attack generation, batch pattern analysis, **machine learning-based vulnerability prediction**, and educational visualizations.
+An interactive web application for running advanced lattice basis reduction attacks (LLL, BKZ) on cryptographic problems, featuring **comprehensive automation engine**, RPC blockchain signature scanning, ML-based vulnerability prediction, batch pattern analysis, parallel attack execution, pattern learning, and educational visualizations.
 
 ## 🚀 Key Features
+
+### ⚡ Automation Engine (NEW!)
+- **Full Workflow Orchestration**: Automated scan → analyze → predict → attack → learn cycles
+- **Continuous Operation**: Run workflows on configurable intervals (manual or automatic)
+- **Parallel Execution**: Execute multiple attacks simultaneously (1-10 concurrent attacks)
+- **Intelligent Queueing**: Priority-based attack queue with severity filtering
+- **Pattern Learning**: Automatically extract optimal parameters from successful attacks
+- **Real-time Monitoring**: Live progress tracking through workflow phases
+- **Activity History**: Comprehensive logging of all automation actions
+- **Learned Patterns Library**: Build knowledge base of effective configurations
 
 ### Lattice Basis Reduction
 - **LLL Algorithm**: Fast polynomial-time lattice reduction
@@ -37,13 +47,26 @@ An interactive web application for running advanced lattice basis reduction atta
 ## 📚 Documentation
 
 - **[PRD.md](PRD.md)**: Product requirements and feature specifications
+- **[AUTOMATION.md](AUTOMATION.md)**: Complete automation engine guide
 - **[BATCH_ANALYSIS.md](BATCH_ANALYSIS.md)**: Detailed batch analysis documentation
 - **[ML_PREDICTION.md](ML_PREDICTION.md)**: Machine learning prediction system guide
 - **[SECURITY.md](SECURITY.md)**: Security considerations and best practices
 
 ## 🎯 Quick Start
 
-### 1. Run Standard Attack
+### 1. Automated Workflow (Recommended)
+```
+1. Navigate to "Automation" tab
+2. Configure RPC endpoint and starting block
+3. Set blocks per scan and scan interval
+4. Enable auto-analyze, auto-attack, and auto-learn
+5. Set priority threshold (e.g., "High & Above")
+6. Click "Run Once" for single cycle or "Start Auto" for continuous operation
+7. Monitor metrics: blocks scanned, weaknesses found, attacks executed, success rate
+8. Review activity history and learned patterns
+```
+
+### 2. Run Standard Attack
 ```
 1. Navigate to "Attack" tab
 2. Click "Templates" to load a pre-configured attack

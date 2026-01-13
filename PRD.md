@@ -1,14 +1,14 @@
 # Planning Guide
 
-An interactive web application for running advanced lattice basis reduction attacks (LLL, BKZ) on cryptographic problems, with RPC blockchain signature scanning, automated attack generation, visual feedback and educational context.
+An interactive web application for running advanced lattice basis reduction attacks (LLL, BKZ) on cryptographic problems, with RPC blockchain signature scanning, automated attack generation, comprehensive automation engine, machine learning predictions, visual feedback and educational context.
 
 **Experience Qualities**:
-1. **Precise** - The interface should convey technical accuracy and mathematical rigor appropriate for cryptographic analysis
-2. **Automated** - Users can automatically detect real-world vulnerabilities and generate attack configurations
+1. **Automated** - The application orchestrates complete attack workflows from discovery to exploitation with minimal user intervention
+2. **Precise** - The interface should convey technical accuracy and mathematical rigor appropriate for cryptographic analysis
 3. **Powerful** - The tool should feel capable and professional, suitable for both security research and education
 
-**Complexity Level**: Light Application (multiple features with basic state)
-- This is a specialized tool with multiple attack vectors, RPC blockchain scanning, automated lattice generation, input methods, and result visualization, but doesn't require complex multi-view navigation or advanced state management beyond storing attack history.
+**Complexity Level**: Complex Application (advanced functionality with multiple views and automation)
+- This is a sophisticated security research tool with automated workflow orchestration, RPC blockchain scanning, ML-based prediction, batch pattern analysis, parallel attack execution, pattern learning, and comprehensive visualization across multiple interconnected features.
 
 ## Essential Features
 
@@ -46,6 +46,27 @@ An interactive web application for running advanced lattice basis reduction atta
 - **Trigger**: Automatically saved after each attack execution
 - **Progression**: Attack completes → Save to history → View in history list → Click to restore configuration → Re-run or modify
 - **Success criteria**: History persists between sessions, easy to navigate and restore previous attacks
+
+### Automation Engine
+- **Functionality**: Fully automated workflow orchestration from scanning to attack execution and pattern learning
+- **Purpose**: Enable continuous vulnerability discovery and exploitation with zero manual intervention
+- **Trigger**: User clicks "Run Once" for single cycle or "Start Auto" for continuous operation
+- **Progression**: Configure RPC endpoint & scan parameters → Enable auto-analyze/attack/learn → Set priority threshold & concurrency → Start engine → Monitor real-time progress (scanning → analyzing → predicting → attacking → learning) → View metrics (blocks scanned, weaknesses found, attacks executed, success rate) → Review activity history → Examine learned patterns → Adjust configuration → Continue or stop
+- **Success criteria**: Engine executes complete workflows autonomously, queues and prioritizes attacks intelligently, learns optimal parameters from successful attacks, runs continuously without errors, provides comprehensive activity logging
+
+### Parallel Attack Execution
+- **Functionality**: Execute multiple lattice reduction attacks simultaneously with configurable concurrency
+- **Purpose**: Maximize throughput when processing multiple detected vulnerabilities
+- **Trigger**: Automation engine detects multiple weaknesses and queues attacks
+- **Progression**: Detect vulnerabilities → Prioritize by severity → Queue attacks → Execute up to N attacks in parallel → Monitor progress → Collect results → Update metrics
+- **Success criteria**: Multiple attacks run concurrently without interference, results are correctly attributed, performance scales with concurrency setting
+
+### Pattern Learning System
+- **Functionality**: Automatically extract optimal attack parameters from successful executions
+- **Purpose**: Build knowledge base of effective configurations for different problem structures
+- **Trigger**: Automation engine completes attacks with auto-learn enabled
+- **Progression**: Execute attacks → Identify successful ones → Group by problem size/structure → Calculate optimal delta, algorithm, and block size → Store learned patterns → Display pattern library → Apply patterns to similar future attacks
+- **Success criteria**: Patterns accurately capture optimal settings, success rates and execution times are tracked, patterns inform future attack configurations
 
 ### Result Visualization
 - **Functionality**: Display reduced basis vectors, solution vectors, and attack metrics in clear format
