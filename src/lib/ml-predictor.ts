@@ -8,6 +8,9 @@ export interface MLPrediction {
   reasoning: string[]
   suggestedScanPriority: 'critical' | 'high' | 'medium' | 'low'
   estimatedWeakSignatureCount: number
+  riskScore: number
+  proximityToKnownWeakness: number
+  temporalRiskFactor: number
 }
 
 export interface PredictedVulnerability {
@@ -35,12 +38,23 @@ export interface MLModel {
   lastUpdated: number
 }
 
+export interface ScanRecommendation {
+  blocks: number[]
+  priority: 'critical' | 'high' | 'medium' | 'low'
+  expectedVulnerabilities: number
+  reason: string
+  estimatedScanTime: number
+}
+
 export interface MLPredictionResult {
   predictions: MLPrediction[]
   model: MLModel
   suggestedBlocks: number[]
   totalAnalyzed: number
   predictionTime: number
+  scanRecommendations: ScanRecommendation[]
+  optimalScanOrder: number[]
+  riskHeatmap: { blockNumber: number; riskScore: number }[]
 }
 
 function calculateBlockHash(block: number): bigint {
@@ -204,6 +218,11 @@ function predictBlock(
     temporal.blockDensity
   )
 
+  const weakBlocks = weakSignatures.map(w => w.signature.blockNumber)
+  const proximityToKnownWeakness = weakBlocks.length > 0
+    ? Math.exp(-Math.min(...weakBlocks.map(wb => Math.abs(wb - blockNumber))) / 500)
+    : 0
+
   const clusterProximityScore = clusters.length > 0
     ? Math.exp(-Math.min(...clusters.map(c => {
         const clusterBlocks = c.signatures.map(s => s.blockNumber)
@@ -212,6 +231,10 @@ function predictBlock(
       })) / 1000)
     : 0
 
+  const temporalRiskFactor = Math.abs(temporal.temporalTrend) + 
+    (temporal.activitySpike ? 0.3 : 0) +
+    temporal.weekdayPattern * 0.2
+
   const confidence = 
     model.weights.temporalPattern * Math.abs(temporal.temporalTrend) +
     model.weights.addressFrequency * address.addressConcentration +
@@ -219,6 +242,11 @@ function predictBlock(
     model.weights.weekdayPattern * temporal.weekdayPattern +
     model.weights.blockDensity * (temporal.blockDensity / 100) +
     model.weights.clusterProximity * clusterProximityScore
+
+  const riskScore = 
+    confidence * 0.4 +
+    proximityToKnownWeakness * 0.3 +
+    temporalRiskFactor * 0.3
 
   const reasoning: string[] = []
   const predictedVulnerabilities: PredictedVulnerability[] = []
@@ -277,14 +305,18 @@ function predictBlock(
     reasoning.push(`Block proximity to known weak signatures (score: ${volumeAnomaly.toFixed(2)})`)
   }
 
+  if (proximityToKnownWeakness > 0.5) {
+    reasoning.push(`Very close to confirmed vulnerable blocks (proximity: ${(proximityToKnownWeakness * 100).toFixed(0)}%)`)
+  }
+
   const estimatedWeakSignatureCount = Math.round(
-    confidence * temporal.blockDensity * (1 + address.addressConcentration)
+    confidence * temporal.blockDensity * (1 + address.addressConcentration) * (1 + proximityToKnownWeakness)
   )
 
   let suggestedScanPriority: 'critical' | 'high' | 'medium' | 'low'
-  if (confidence > 0.7) suggestedScanPriority = 'critical'
-  else if (confidence > 0.5) suggestedScanPriority = 'high'
-  else if (confidence > 0.3) suggestedScanPriority = 'medium'
+  if (riskScore > 0.7 || proximityToKnownWeakness > 0.8) suggestedScanPriority = 'critical'
+  else if (riskScore > 0.5 || proximityToKnownWeakness > 0.6) suggestedScanPriority = 'high'
+  else if (riskScore > 0.3) suggestedScanPriority = 'medium'
   else suggestedScanPriority = 'low'
 
   return {
@@ -293,8 +325,112 @@ function predictBlock(
     confidence: Math.min(1, confidence),
     reasoning: reasoning.length > 0 ? reasoning : ['Limited historical data for accurate prediction'],
     suggestedScanPriority,
-    estimatedWeakSignatureCount
+    estimatedWeakSignatureCount,
+    riskScore: Math.min(1, riskScore),
+    proximityToKnownWeakness,
+    temporalRiskFactor
   }
+}
+
+function generateScanRecommendations(predictions: MLPrediction[]): ScanRecommendation[] {
+  const recommendations: ScanRecommendation[] = []
+  const sortedPredictions = [...predictions].sort((a, b) => b.riskScore - a.riskScore)
+
+  const criticalBlocks = sortedPredictions
+    .filter(p => p.suggestedScanPriority === 'critical')
+    .map(p => p.blockNumber)
+  
+  if (criticalBlocks.length > 0) {
+    const groups = groupConsecutiveBlocks(criticalBlocks, 50)
+    for (const group of groups) {
+      const avgRisk = group.reduce((sum, b) => {
+        const pred = predictions.find(p => p.blockNumber === b)
+        return sum + (pred?.riskScore || 0)
+      }, 0) / group.length
+      
+      recommendations.push({
+        blocks: group,
+        priority: 'critical',
+        expectedVulnerabilities: Math.round(group.reduce((sum, b) => {
+          const pred = predictions.find(p => p.blockNumber === b)
+          return sum + (pred?.estimatedWeakSignatureCount || 0)
+        }, 0)),
+        reason: `Critical risk cluster with ${group.length} blocks (avg risk: ${(avgRisk * 100).toFixed(0)}%)`,
+        estimatedScanTime: group.length * 2
+      })
+    }
+  }
+
+  const highBlocks = sortedPredictions
+    .filter(p => p.suggestedScanPriority === 'high' && !criticalBlocks.includes(p.blockNumber))
+    .map(p => p.blockNumber)
+  
+  if (highBlocks.length > 0) {
+    const groups = groupConsecutiveBlocks(highBlocks, 100)
+    for (const group of groups.slice(0, 3)) {
+      const avgRisk = group.reduce((sum, b) => {
+        const pred = predictions.find(p => p.blockNumber === b)
+        return sum + (pred?.riskScore || 0)
+      }, 0) / group.length
+      
+      recommendations.push({
+        blocks: group,
+        priority: 'high',
+        expectedVulnerabilities: Math.round(group.reduce((sum, b) => {
+          const pred = predictions.find(p => p.blockNumber === b)
+          return sum + (pred?.estimatedWeakSignatureCount || 0)
+        }, 0)),
+        reason: `High risk area with ${group.length} blocks (avg risk: ${(avgRisk * 100).toFixed(0)}%)`,
+        estimatedScanTime: group.length * 2
+      })
+    }
+  }
+
+  return recommendations.sort((a, b) => {
+    const priorityOrder = { critical: 0, high: 1, medium: 2, low: 3 }
+    return priorityOrder[a.priority] - priorityOrder[b.priority]
+  })
+}
+
+function groupConsecutiveBlocks(blocks: number[], maxGap: number = 50): number[][] {
+  if (blocks.length === 0) return []
+  
+  const sorted = [...blocks].sort((a, b) => a - b)
+  const groups: number[][] = []
+  let currentGroup: number[] = [sorted[0]]
+  
+  for (let i = 1; i < sorted.length; i++) {
+    if (sorted[i] - sorted[i - 1] <= maxGap) {
+      currentGroup.push(sorted[i])
+    } else {
+      groups.push(currentGroup)
+      currentGroup = [sorted[i]]
+    }
+  }
+  groups.push(currentGroup)
+  
+  return groups
+}
+
+function generateOptimalScanOrder(predictions: MLPrediction[]): number[] {
+  const priorityScores: { [key: string]: number } = {
+    critical: 4,
+    high: 3,
+    medium: 2,
+    low: 1
+  }
+  
+  return [...predictions]
+    .sort((a, b) => {
+      const priorityDiff = priorityScores[b.suggestedScanPriority] - priorityScores[a.suggestedScanPriority]
+      if (priorityDiff !== 0) return priorityDiff
+      
+      const riskDiff = b.riskScore - a.riskScore
+      if (Math.abs(riskDiff) > 0.1) return riskDiff
+      
+      return b.proximityToKnownWeakness - a.proximityToKnownWeakness
+    })
+    .map(p => p.blockNumber)
 }
 
 export function generateMLPredictions(
@@ -323,12 +459,19 @@ export function generateMLPredictions(
     predictions.push(prediction)
   }
 
-  predictions.sort((a, b) => b.confidence - a.confidence)
+  predictions.sort((a, b) => b.riskScore - a.riskScore)
 
   const suggestedBlocks = predictions
     .filter(p => p.suggestedScanPriority === 'critical' || p.suggestedScanPriority === 'high')
     .slice(0, 20)
     .map(p => p.blockNumber)
+
+  const scanRecommendations = generateScanRecommendations(predictions)
+  const optimalScanOrder = generateOptimalScanOrder(predictions)
+  const riskHeatmap = predictions.map(p => ({
+    blockNumber: p.blockNumber,
+    riskScore: p.riskScore
+  }))
 
   const predictionTime = performance.now() - startTime
 
@@ -337,7 +480,10 @@ export function generateMLPredictions(
     model,
     suggestedBlocks,
     totalAnalyzed: predictions.length,
-    predictionTime
+    predictionTime,
+    scanRecommendations,
+    optimalScanOrder,
+    riskHeatmap
   }
 }
 

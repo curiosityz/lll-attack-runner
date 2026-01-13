@@ -36,6 +36,8 @@ export function RPCScanner({ onAttackGenerated }: RPCScannerProps) {
   const [isPredicting, setIsPredicting] = useState(false)
   const [predictionFromBlock, setPredictionFromBlock] = useState('21000010')
   const [predictionToBlock, setPredictionToBlock] = useState('21000050')
+  const [autoScanInProgress, setAutoScanInProgress] = useState(false)
+  const [autoScanQueue, setAutoScanQueue] = useState<{ from: number; to: number }[]>([])
 
   const handleScan = async () => {
     const from = parseInt(fromBlock)
@@ -197,6 +199,68 @@ export function RPCScanner({ onAttackGenerated }: RPCScannerProps) {
     setFromBlock(from.toString())
     setToBlock(to.toString())
     toast.info(`Configured scan for predicted range ${from}-${to}`)
+  }
+
+  const handleAutoScanAll = async (recommendations: import('@/lib/ml-predictor').ScanRecommendation[]) => {
+    if (recommendations.length === 0) {
+      toast.info('No recommendations to scan')
+      return
+    }
+
+    const queue = recommendations.map(rec => ({
+      from: rec.blocks[0],
+      to: rec.blocks[rec.blocks.length - 1]
+    }))
+
+    setAutoScanQueue(queue)
+    setAutoScanInProgress(true)
+    
+    toast.info(`Starting auto-scan of ${queue.length} recommended range${queue.length !== 1 ? 's' : ''}...`)
+
+    for (let i = 0; i < queue.length; i++) {
+      const range = queue[i]
+      toast.info(`Scanning range ${i + 1}/${queue.length}: Blocks ${range.from}-${range.to}`)
+      
+      setFromBlock(range.from.toString())
+      setToBlock(range.to.toString())
+      
+      try {
+        const result = await scanRPCForWeakSignatures(
+          rpcUrl,
+          range.from,
+          range.to,
+          (current, total) => {
+            setScanProgress((current / total) * 100)
+          }
+        )
+
+        const currentResult = scanResult
+        if (currentResult) {
+          setScanResult({
+            ...result,
+            allSignatures: [...currentResult.allSignatures, ...result.allSignatures],
+            weakSignatures: [...currentResult.weakSignatures, ...result.weakSignatures],
+            scanned: currentResult.scanned + result.scanned
+          })
+        } else {
+          setScanResult(result)
+        }
+
+        if (result.weakSignatures.length > 0) {
+          toast.success(`Found ${result.weakSignatures.length} weak signature(s) in range ${range.from}-${range.to}`)
+        }
+      } catch (error) {
+        toast.error(`Failed to scan range ${range.from}-${range.to}: ${error instanceof Error ? error.message : 'Unknown error'}`)
+      }
+
+      if (i < queue.length - 1) {
+        await new Promise(resolve => setTimeout(resolve, 1000))
+      }
+    }
+
+    setAutoScanInProgress(false)
+    setAutoScanQueue([])
+    toast.success(`Auto-scan complete! Scanned ${queue.length} range${queue.length !== 1 ? 's' : ''}`)
   }
 
   const handleGenerateAttack = (weakSig: WeakSignature) => {
@@ -380,14 +444,14 @@ export function RPCScanner({ onAttackGenerated }: RPCScannerProps) {
 
           <Button
             onClick={handleScan}
-            disabled={isScanning}
+            disabled={isScanning || autoScanInProgress}
             className="w-full"
             size="lg"
           >
-            {isScanning ? (
+            {isScanning || autoScanInProgress ? (
               <>
                 <div className="animate-spin mr-2 h-4 w-4 border-2 border-primary-foreground border-t-transparent rounded-full" />
-                Scanning...
+                {autoScanInProgress ? `Auto-Scanning... (${autoScanQueue.length} remaining)` : 'Scanning...'}
               </>
             ) : (
               <>
@@ -630,6 +694,7 @@ export function RPCScanner({ onAttackGenerated }: RPCScannerProps) {
                       predictionResult={mlPredictions}
                       onScanBlock={handlePredictedBlockScan}
                       onScanRange={handlePredictedRangeScan}
+                      onAutoScanAll={handleAutoScanAll}
                     />
                   ) : (
                     <Card className="p-6 bg-card border-border">

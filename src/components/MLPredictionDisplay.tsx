@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { Card } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -5,20 +6,27 @@ import { Progress } from '@/components/ui/progress'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Separator } from '@/components/ui/separator'
 import { Alert, AlertDescription } from '@/components/ui/alert'
-import { Brain, TrendUp, Target, Crosshair, Sparkle } from '@phosphor-icons/react'
-import { MLPrediction, MLPredictionResult, PredictedVulnerability } from '@/lib/ml-predictor'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { Brain, TrendUp, Target, Crosshair, Sparkle, Flame, ListChecks } from '@phosphor-icons/react'
+import { MLPrediction, MLPredictionResult, PredictedVulnerability, ScanRecommendation } from '@/lib/ml-predictor'
+import { RiskHeatmap } from '@/components/RiskHeatmap'
+import { ScanRecommendations } from '@/components/ScanRecommendations'
 
 interface MLPredictionDisplayProps {
   predictionResult: MLPredictionResult
   onScanBlock: (blockNumber: number) => void
   onScanRange: (from: number, to: number) => void
+  onAutoScanAll?: (recommendations: ScanRecommendation[]) => void
 }
 
 export function MLPredictionDisplay({ 
   predictionResult, 
   onScanBlock, 
-  onScanRange 
+  onScanRange,
+  onAutoScanAll 
 }: MLPredictionDisplayProps) {
+  const [activeTab, setActiveTab] = useState('overview')
+
   const getPriorityColor = (priority: string) => {
     switch (priority) {
       case 'critical':
@@ -60,153 +68,175 @@ export function MLPredictionDisplay({
   const mediumCount = predictionResult.predictions.filter(p => p.suggestedScanPriority === 'medium').length
 
   return (
-    <div className="space-y-6">
-      <Card className="p-6 bg-card border-border">
-        <div className="flex items-center gap-3 mb-4">
-          <Brain size={24} className="text-accent" weight="fill" />
-          <div>
-            <h2 className="text-lg font-semibold">ML Pattern Predictions</h2>
-            <p className="text-xs text-muted-foreground">
-              AI-powered vulnerability forecasting for unscanned blocks
-            </p>
-          </div>
-        </div>
+    <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
+      <TabsList className="grid w-full grid-cols-4">
+        <TabsTrigger value="overview">
+          <Brain size={16} className="mr-2" />
+          Overview
+        </TabsTrigger>
+        <TabsTrigger value="recommendations">
+          <ListChecks size={16} className="mr-2" />
+          Recommendations
+        </TabsTrigger>
+        <TabsTrigger value="heatmap">
+          <Flame size={16} className="mr-2" />
+          Risk Heatmap
+        </TabsTrigger>
+        <TabsTrigger value="predictions">
+          <Target size={16} className="mr-2" />
+          All Predictions
+        </TabsTrigger>
+      </TabsList>
 
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
-          <div className="bg-secondary/50 p-3 rounded-lg">
-            <div className="text-xs text-muted-foreground mb-1">Model Accuracy</div>
-            <div className="text-xl font-bold">
-              {(predictionResult.model.trainingData.accuracy * 100).toFixed(1)}%
+      <TabsContent value="overview" className="space-y-6">
+        <Card className="p-6 bg-card border-border">
+          <div className="flex items-center gap-3 mb-4">
+            <Brain size={24} className="text-accent" weight="fill" />
+            <div>
+              <h2 className="text-lg font-semibold">ML Pattern Predictions</h2>
+              <p className="text-xs text-muted-foreground">
+                AI-powered vulnerability forecasting for unscanned blocks
+              </p>
             </div>
           </div>
-          <div className="bg-secondary/50 p-3 rounded-lg">
-            <div className="text-xs text-muted-foreground mb-1">Training Data</div>
-            <div className="text-xl font-bold">
-              {predictionResult.model.trainingData.totalBlocks} blocks
-            </div>
-          </div>
-          <div className="bg-secondary/50 p-3 rounded-lg">
-            <div className="text-xs text-muted-foreground mb-1">Patterns Found</div>
-            <div className="text-xl font-bold">
-              {predictionResult.model.trainingData.patternsDetected}
-            </div>
-          </div>
-          <div className="bg-secondary/50 p-3 rounded-lg">
-            <div className="text-xs text-muted-foreground mb-1">Prediction Time</div>
-            <div className="text-xl font-bold">
-              {predictionResult.predictionTime.toFixed(0)}ms
-            </div>
-          </div>
-        </div>
 
-        <Separator className="my-4" />
-
-        <div className="space-y-2 mb-4">
-          <div className="flex justify-between items-center text-xs">
-            <span className="text-muted-foreground">Priority Distribution</span>
-            <span className="font-mono">
-              {criticalCount}C / {highCount}H / {mediumCount}M
-            </span>
-          </div>
-          <div className="flex gap-1 h-2 rounded-full overflow-hidden">
-            <div 
-              className="bg-destructive" 
-              style={{ width: `${(criticalCount / predictionResult.predictions.length) * 100}%` }}
-            />
-            <div 
-              className="bg-orange-500" 
-              style={{ width: `${(highCount / predictionResult.predictions.length) * 100}%` }}
-            />
-            <div 
-              className="bg-yellow-500" 
-              style={{ width: `${(mediumCount / predictionResult.predictions.length) * 100}%` }}
-            />
-            <div 
-              className="bg-blue-500" 
-              style={{ 
-                width: `${((predictionResult.predictions.length - criticalCount - highCount - mediumCount) / predictionResult.predictions.length) * 100}%` 
-              }}
-            />
-          </div>
-        </div>
-
-        {predictionResult.suggestedBlocks.length > 0 && (
-          <Alert className="bg-accent/10 border-accent/20">
-            <Sparkle size={16} className="text-accent" weight="fill" />
-            <AlertDescription className="text-xs">
-              <strong>Smart Scan Recommendation:</strong> ML model suggests prioritizing{' '}
-              {predictionResult.suggestedBlocks.length} blocks with highest vulnerability probability
-            </AlertDescription>
-          </Alert>
-        )}
-
-        {predictionResult.suggestedBlocks.length > 0 && (
-          <div className="mt-4 flex gap-2">
-            <Button
-              onClick={() => onScanRange(
-                Math.min(...predictionResult.suggestedBlocks),
-                Math.max(...predictionResult.suggestedBlocks)
-              )}
-              size="sm"
-              className="flex-1"
-            >
-              <Target size={16} weight="fill" />
-              Scan Suggested Range
-            </Button>
-          </div>
-        )}
-      </Card>
-
-      <Card className="p-6 bg-card border-border">
-        <div className="flex items-center justify-between mb-4">
-          <h3 className="text-base font-semibold">High-Priority Predictions</h3>
-          <Badge variant="outline" className="text-xs">
-            Top {topPredictions.length} blocks
-          </Badge>
-        </div>
-
-        {topPredictions.length === 0 ? (
-          <div className="text-center py-8">
-            <TrendUp size={48} className="mx-auto mb-4 text-muted-foreground" />
-            <h3 className="text-sm font-semibold mb-2">No High-Priority Predictions</h3>
-            <p className="text-xs text-muted-foreground">
-              Model confidence is low for the target range. Try scanning a different area or gathering more training data.
-            </p>
-          </div>
-        ) : (
-          <ScrollArea className="h-[500px] pr-4">
-            <div className="space-y-3">
-              {topPredictions.map((prediction) => (
-                <PredictionCard
-                  key={prediction.blockNumber}
-                  prediction={prediction}
-                  onScanBlock={onScanBlock}
-                  getPriorityColor={getPriorityColor}
-                  getVulnerabilityColor={getVulnerabilityColor}
-                />
-              ))}
-            </div>
-          </ScrollArea>
-        )}
-      </Card>
-
-      <Card className="p-6 bg-card border-border">
-        <h3 className="text-base font-semibold mb-4">Model Feature Weights</h3>
-        <div className="space-y-3">
-          {Object.entries(predictionResult.model.weights).map(([feature, weight]) => (
-            <div key={feature}>
-              <div className="flex justify-between text-xs mb-1">
-                <span className="text-muted-foreground capitalize">
-                  {feature.replace(/([A-Z])/g, ' $1').trim()}
-                </span>
-                <span className="font-mono">{(weight * 100).toFixed(1)}%</span>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
+            <div className="bg-secondary/50 p-3 rounded-lg">
+              <div className="text-xs text-muted-foreground mb-1">Model Accuracy</div>
+              <div className="text-xl font-bold">
+                {(predictionResult.model.trainingData.accuracy * 100).toFixed(1)}%
               </div>
-              <Progress value={weight * 100} className="h-1.5" />
             </div>
-          ))}
-        </div>
-      </Card>
-    </div>
+            <div className="bg-secondary/50 p-3 rounded-lg">
+              <div className="text-xs text-muted-foreground mb-1">Training Data</div>
+              <div className="text-xl font-bold">
+                {predictionResult.model.trainingData.totalBlocks} blocks
+              </div>
+            </div>
+            <div className="bg-secondary/50 p-3 rounded-lg">
+              <div className="text-xs text-muted-foreground mb-1">Patterns Found</div>
+              <div className="text-xl font-bold">
+                {predictionResult.model.trainingData.patternsDetected}
+              </div>
+            </div>
+            <div className="bg-secondary/50 p-3 rounded-lg">
+              <div className="text-xs text-muted-foreground mb-1">Prediction Time</div>
+              <div className="text-xl font-bold">
+                {predictionResult.predictionTime.toFixed(0)}ms
+              </div>
+            </div>
+          </div>
+
+          <Separator className="my-4" />
+
+          <div className="space-y-2 mb-4">
+            <div className="flex justify-between items-center text-xs">
+              <span className="text-muted-foreground">Priority Distribution</span>
+              <span className="font-mono">
+                {criticalCount}C / {highCount}H / {mediumCount}M
+              </span>
+            </div>
+            <div className="flex gap-1 h-2 rounded-full overflow-hidden">
+              <div 
+                className="bg-destructive" 
+                style={{ width: `${(criticalCount / predictionResult.predictions.length) * 100}%` }}
+              />
+              <div 
+                className="bg-orange-500" 
+                style={{ width: `${(highCount / predictionResult.predictions.length) * 100}%` }}
+              />
+              <div 
+                className="bg-yellow-500" 
+                style={{ width: `${(mediumCount / predictionResult.predictions.length) * 100}%` }}
+              />
+              <div 
+                className="bg-blue-500" 
+                style={{ 
+                  width: `${((predictionResult.predictions.length - criticalCount - highCount - mediumCount) / predictionResult.predictions.length) * 100}%` 
+                }}
+              />
+            </div>
+          </div>
+
+          {predictionResult.scanRecommendations.length > 0 && (
+            <Alert className="bg-accent/10 border-accent/20">
+              <Sparkle size={16} className="text-accent" weight="fill" />
+              <AlertDescription className="text-xs">
+                <strong>Smart Scan Available:</strong> ML model has identified {predictionResult.scanRecommendations.length} optimized scan{predictionResult.scanRecommendations.length !== 1 ? 's' : ''} for maximum vulnerability detection. 
+                View the Recommendations tab for details.
+              </AlertDescription>
+            </Alert>
+          )}
+        </Card>
+
+        <Card className="p-6 bg-card border-border">
+          <h3 className="text-base font-semibold mb-4">Model Feature Weights</h3>
+          <div className="space-y-3">
+            {Object.entries(predictionResult.model.weights).map(([feature, weight]) => (
+              <div key={feature}>
+                <div className="flex justify-between text-xs mb-1">
+                  <span className="text-muted-foreground capitalize">
+                    {feature.replace(/([A-Z])/g, ' $1').trim()}
+                  </span>
+                  <span className="font-mono">{(weight * 100).toFixed(1)}%</span>
+                </div>
+                <Progress value={weight * 100} className="h-1.5" />
+              </div>
+            ))}
+          </div>
+        </Card>
+      </TabsContent>
+
+      <TabsContent value="recommendations">
+        <ScanRecommendations
+          recommendations={predictionResult.scanRecommendations}
+          onScanRecommendation={onScanRange}
+          onAutoScanAll={onAutoScanAll || (() => {})}
+        />
+      </TabsContent>
+
+      <TabsContent value="heatmap">
+        <RiskHeatmap
+          heatmap={predictionResult.riskHeatmap}
+          onSelectBlock={onScanBlock}
+        />
+      </TabsContent>
+
+      <TabsContent value="predictions">
+        <Card className="p-6 bg-card border-border">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-base font-semibold">High-Priority Predictions</h3>
+            <Badge variant="outline" className="text-xs">
+              Top {topPredictions.length} blocks
+            </Badge>
+          </div>
+
+          {topPredictions.length === 0 ? (
+            <div className="text-center py-8">
+              <TrendUp size={48} className="mx-auto mb-4 text-muted-foreground" />
+              <h3 className="text-sm font-semibold mb-2">No High-Priority Predictions</h3>
+              <p className="text-xs text-muted-foreground">
+                Model confidence is low for the target range. Try scanning a different area or gathering more training data.
+              </p>
+            </div>
+          ) : (
+            <ScrollArea className="h-[500px] pr-4">
+              <div className="space-y-3">
+                {topPredictions.map((prediction) => (
+                  <PredictionCard
+                    key={prediction.blockNumber}
+                    prediction={prediction}
+                    onScanBlock={onScanBlock}
+                    getPriorityColor={getPriorityColor}
+                    getVulnerabilityColor={getVulnerabilityColor}
+                  />
+                ))}
+              </div>
+            </ScrollArea>
+          )}
+        </Card>
+      </TabsContent>
+    </Tabs>
   )
 }
 
@@ -236,9 +266,15 @@ function PredictionCard({
             </Badge>
           </div>
           <div className="text-xs text-muted-foreground">
+            Risk Score: {(prediction.riskScore * 100).toFixed(1)}% • 
             Confidence: {(prediction.confidence * 100).toFixed(1)}% • 
             Est. {prediction.estimatedWeakSignatureCount} weak signature{prediction.estimatedWeakSignatureCount !== 1 ? 's' : ''}
           </div>
+          {prediction.proximityToKnownWeakness > 0.5 && (
+            <div className="text-xs text-orange-400 mt-1">
+              ⚠ Near confirmed vulnerabilities ({(prediction.proximityToKnownWeakness * 100).toFixed(0)}% proximity)
+            </div>
+          )}
         </div>
         <Button
           onClick={() => onScanBlock(prediction.blockNumber)}
