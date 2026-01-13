@@ -8,12 +8,15 @@ import { Progress } from '@/components/ui/progress'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Badge } from '@/components/ui/badge'
 import { Separator } from '@/components/ui/separator'
-import { MagnifyingGlass, CheckCircle, XCircle, Warning } from '@phosphor-icons/react'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { MagnifyingGlass, CheckCircle, XCircle, Warning, ChartLine } from '@phosphor-icons/react'
 import { toast } from 'sonner'
 import { scanRPCForWeakSignatures, generateLatticeFromWeakSignatures, type WeakSignature, type ScanResult } from '@/lib/rpc-scanner'
+import { performBatchAnalysis, generateBatchAttackConfiguration, type BatchAnalysisResult, type SignatureCluster } from '@/lib/batch-analysis'
+import { BatchAnalysisDisplay } from '@/components/BatchAnalysisDisplay'
 
 interface RPCScannerProps {
-  onAttackGenerated: (basis: number[][], delta: number, name: string, description: string) => void
+  onAttackGenerated: (basis: number[][], delta: number, name: string, description: string, algorithm?: 'lll' | 'bkz', blockSize?: number) => void
 }
 
 export function RPCScanner({ onAttackGenerated }: RPCScannerProps) {
@@ -23,6 +26,8 @@ export function RPCScanner({ onAttackGenerated }: RPCScannerProps) {
   const [isScanning, setIsScanning] = useState(false)
   const [scanProgress, setScanProgress] = useState(0)
   const [scanResult, setScanResult] = useState<ScanResult | null>(null)
+  const [batchAnalysis, setBatchAnalysis] = useState<BatchAnalysisResult | null>(null)
+  const [isAnalyzing, setIsAnalyzing] = useState(false)
 
   const handleScan = async () => {
     const from = parseInt(fromBlock)
@@ -46,6 +51,7 @@ export function RPCScanner({ onAttackGenerated }: RPCScannerProps) {
     setIsScanning(true)
     setScanProgress(0)
     setScanResult(null)
+    setBatchAnalysis(null)
 
     try {
       const result = await scanRPCForWeakSignatures(
@@ -69,6 +75,49 @@ export function RPCScanner({ onAttackGenerated }: RPCScannerProps) {
       console.error('Scan error:', error)
     } finally {
       setIsScanning(false)
+    }
+  }
+
+  const handleBatchAnalysis = () => {
+    if (!scanResult) return
+
+    setIsAnalyzing(true)
+    
+    try {
+      const allSignatures = scanResult.allSignatures
+
+      if (allSignatures.length === 0) {
+        toast.info('No signatures to analyze')
+        return
+      }
+
+      const analysis = performBatchAnalysis(allSignatures)
+      setBatchAnalysis(analysis)
+      
+      toast.success(`Batch analysis complete: ${analysis.clusters.length} pattern cluster(s) detected`)
+    } catch (error) {
+      toast.error(`Analysis failed: ${error instanceof Error ? error.message : 'Unknown error'}`)
+      console.error('Analysis error:', error)
+    } finally {
+      setIsAnalyzing(false)
+    }
+  }
+
+  const handleGenerateFromCluster = (cluster: SignatureCluster) => {
+    const config = generateBatchAttackConfiguration(cluster)
+    
+    if (config) {
+      onAttackGenerated(
+        config.basis,
+        config.delta,
+        `${cluster.pattern.toUpperCase()} Batch Attack`,
+        config.description,
+        config.algorithm,
+        config.blockSize
+      )
+      toast.success('Batch attack configuration generated!')
+    } else {
+      toast.error('Could not generate attack from this cluster')
     }
   }
 
@@ -205,104 +254,158 @@ export function RPCScanner({ onAttackGenerated }: RPCScannerProps) {
       </Card>
 
       {scanResult && (
-        <Card className="p-6 bg-card border-border">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-lg font-semibold">Scan Results</h2>
-            <Badge variant="outline" className="text-xs">
-              {scanResult.scanned} blocks scanned in {(scanResult.duration / 1000).toFixed(2)}s
-            </Badge>
-          </div>
-
-          {scanResult.weakSignatures.length === 0 ? (
-            <div className="text-center py-8">
-              <CheckCircle size={48} className="mx-auto mb-4 text-success" weight="fill" />
-              <h3 className="text-sm font-semibold mb-2">No Weak Signatures Found</h3>
-              <p className="text-xs text-muted-foreground">
-                All signatures in blocks {scanResult.blockRange.from} - {scanResult.blockRange.to} appear secure
-              </p>
-            </div>
-          ) : (
-            <>
-              <Alert className="mb-4 border-accent bg-accent/10">
-                <AlertDescription className="text-xs">
-                  <strong>Found {scanResult.weakSignatures.length} weak signature(s)</strong> - Click "Generate Attack" to auto-configure lattice reduction
-                </AlertDescription>
-              </Alert>
-
-              <ScrollArea className="h-[400px] pr-4">
-                <div className="space-y-3">
-                  {scanResult.weakSignatures.map((weakSig, idx) => (
-                    <div
-                      key={idx}
-                      className="border border-border rounded-lg p-4 bg-card/50 space-y-3"
+        <>
+          <Card className="p-6 bg-card border-border">
+            <Tabs defaultValue="individual" className="space-y-4">
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-lg font-semibold">Scan Results</h2>
+                <div className="flex items-center gap-2">
+                  <Badge variant="outline" className="text-xs">
+                    {scanResult.scanned} blocks scanned in {(scanResult.duration / 1000).toFixed(2)}s
+                  </Badge>
+                  {scanResult.weakSignatures.length > 0 && (
+                    <Button
+                      onClick={handleBatchAnalysis}
+                      disabled={isAnalyzing}
+                      size="sm"
+                      variant="secondary"
                     >
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="flex-1">
-                          <div className="flex items-center gap-2 mb-2">
-                            {getSeverityIcon(weakSig.severity)}
-                            <Badge variant="outline" className={`text-xs ${getSeverityColor(weakSig.severity)}`}>
-                              {weakSig.severity.toUpperCase()}
-                            </Badge>
-                            <Badge variant="outline" className="text-xs">
-                              {weakSig.weakness.replace(/-/g, ' ').toUpperCase()}
-                            </Badge>
-                          </div>
-                          <p className="text-xs text-muted-foreground mb-2">
-                            {weakSig.description}
-                          </p>
-                        </div>
-                      </div>
-
-                      <Separator />
-
-                      <div className="grid grid-cols-2 gap-2 text-xs font-mono">
-                        <div>
-                          <span className="text-muted-foreground">Block:</span>{' '}
-                          <span className="text-foreground">{weakSig.signature.blockNumber}</span>
-                        </div>
-                        <div className="col-span-2">
-                          <span className="text-muted-foreground">Tx:</span>{' '}
-                          <span className="text-foreground break-all">{weakSig.signature.transactionHash}</span>
-                        </div>
-                        <div className="col-span-2">
-                          <span className="text-muted-foreground">From:</span>{' '}
-                          <span className="text-foreground">{weakSig.signature.address}</span>
-                        </div>
-                        <div className="col-span-2">
-                          <span className="text-muted-foreground">r:</span>{' '}
-                          <span className="text-foreground break-all">{weakSig.signature.r}</span>
-                        </div>
-                        <div className="col-span-2">
-                          <span className="text-muted-foreground">s:</span>{' '}
-                          <span className="text-foreground break-all">{weakSig.signature.s}</span>
-                        </div>
-                      </div>
-
-                      {weakSig.relatedSignatures && weakSig.relatedSignatures.length > 0 && (
+                      {isAnalyzing ? (
                         <>
-                          <Separator />
-                          <div className="text-xs">
-                            <span className="text-muted-foreground">Related signatures:</span>{' '}
-                            <span className="text-accent font-semibold">{weakSig.relatedSignatures.length}</span>
-                          </div>
+                          <div className="animate-spin mr-2 h-3 w-3 border-2 border-secondary-foreground border-t-transparent rounded-full" />
+                          Analyzing...
+                        </>
+                      ) : (
+                        <>
+                          <ChartLine size={14} className="mr-2" />
+                          Run Batch Analysis
                         </>
                       )}
-
-                      <Button
-                        onClick={() => handleGenerateAttack(weakSig)}
-                        size="sm"
-                        className="w-full"
-                        variant="default"
-                      >
-                        Generate Attack Configuration
-                      </Button>
-                    </div>
-                  ))}
+                    </Button>
+                  )}
                 </div>
-              </ScrollArea>
-            </>
-          )}
-        </Card>
+              </div>
+
+              <TabsList className="grid w-full grid-cols-2">
+                <TabsTrigger value="individual">
+                  Individual Signatures ({scanResult.weakSignatures.length})
+                </TabsTrigger>
+                <TabsTrigger value="batch" disabled={!batchAnalysis}>
+                  Batch Analysis {batchAnalysis && `(${batchAnalysis.clusters.length})`}
+                </TabsTrigger>
+              </TabsList>
+
+              <TabsContent value="individual">
+                {scanResult.weakSignatures.length === 0 ? (
+                  <div className="text-center py-8">
+                    <CheckCircle size={48} className="mx-auto mb-4 text-success" weight="fill" />
+                    <h3 className="text-sm font-semibold mb-2">No Weak Signatures Found</h3>
+                    <p className="text-xs text-muted-foreground">
+                      All signatures in blocks {scanResult.blockRange.from} - {scanResult.blockRange.to} appear secure
+                    </p>
+                  </div>
+                ) : (
+                  <>
+                    <Alert className="mb-4 border-accent bg-accent/10">
+                      <AlertDescription className="text-xs">
+                        <strong>Found {scanResult.weakSignatures.length} weak signature(s)</strong> - Click "Generate Attack" for individual attacks or "Run Batch Analysis" for pattern detection
+                      </AlertDescription>
+                    </Alert>
+
+                    <ScrollArea className="h-[400px] pr-4">
+                      <div className="space-y-3">
+                        {scanResult.weakSignatures.map((weakSig, idx) => (
+                          <div
+                            key={idx}
+                            className="border border-border rounded-lg p-4 bg-card/50 space-y-3"
+                          >
+                            <div className="flex items-start justify-between gap-3">
+                              <div className="flex-1">
+                                <div className="flex items-center gap-2 mb-2">
+                                  {getSeverityIcon(weakSig.severity)}
+                                  <Badge variant="outline" className={`text-xs ${getSeverityColor(weakSig.severity)}`}>
+                                    {weakSig.severity.toUpperCase()}
+                                  </Badge>
+                                  <Badge variant="outline" className="text-xs">
+                                    {weakSig.weakness.replace(/-/g, ' ').toUpperCase()}
+                                  </Badge>
+                                </div>
+                                <p className="text-xs text-muted-foreground mb-2">
+                                  {weakSig.description}
+                                </p>
+                              </div>
+                            </div>
+
+                            <Separator />
+
+                            <div className="grid grid-cols-2 gap-2 text-xs font-mono">
+                              <div>
+                                <span className="text-muted-foreground">Block:</span>{' '}
+                                <span className="text-foreground">{weakSig.signature.blockNumber}</span>
+                              </div>
+                              <div className="col-span-2">
+                                <span className="text-muted-foreground">Tx:</span>{' '}
+                                <span className="text-foreground break-all">{weakSig.signature.transactionHash}</span>
+                              </div>
+                              <div className="col-span-2">
+                                <span className="text-muted-foreground">From:</span>{' '}
+                                <span className="text-foreground">{weakSig.signature.address}</span>
+                              </div>
+                              <div className="col-span-2">
+                                <span className="text-muted-foreground">r:</span>{' '}
+                                <span className="text-foreground break-all">{weakSig.signature.r}</span>
+                              </div>
+                              <div className="col-span-2">
+                                <span className="text-muted-foreground">s:</span>{' '}
+                                <span className="text-foreground break-all">{weakSig.signature.s}</span>
+                              </div>
+                            </div>
+
+                            {weakSig.relatedSignatures && weakSig.relatedSignatures.length > 0 && (
+                              <>
+                                <Separator />
+                                <div className="text-xs">
+                                  <span className="text-muted-foreground">Related signatures:</span>{' '}
+                                  <span className="text-accent font-semibold">{weakSig.relatedSignatures.length}</span>
+                                </div>
+                              </>
+                            )}
+
+                            <Button
+                              onClick={() => handleGenerateAttack(weakSig)}
+                              size="sm"
+                              className="w-full"
+                              variant="default"
+                            >
+                              Generate Attack Configuration
+                            </Button>
+                          </div>
+                        ))}
+                      </div>
+                    </ScrollArea>
+                  </>
+                )}
+              </TabsContent>
+
+              <TabsContent value="batch">
+                {batchAnalysis ? (
+                  <BatchAnalysisDisplay 
+                    analysis={batchAnalysis} 
+                    onGenerateAttack={handleGenerateFromCluster}
+                  />
+                ) : (
+                  <div className="text-center py-12">
+                    <ChartLine size={48} className="mx-auto mb-4 text-muted-foreground" />
+                    <h3 className="text-sm font-semibold mb-2">No Batch Analysis Yet</h3>
+                    <p className="text-xs text-muted-foreground">
+                      Click "Run Batch Analysis" to detect patterns across multiple signatures
+                    </p>
+                  </div>
+                )}
+              </TabsContent>
+            </Tabs>
+          </Card>
+        </>
       )}
     </div>
   )

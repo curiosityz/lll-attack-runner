@@ -21,6 +21,7 @@ export interface WeakSignature {
 export interface ScanResult {
   scanned: number
   weakSignatures: WeakSignature[]
+  allSignatures: RPCSignature[]
   duration: number
   rpcUrl: string
   blockRange: { from: number; to: number }
@@ -222,6 +223,7 @@ export async function scanRPCForWeakSignatures(
   return {
     scanned: scannedCount,
     weakSignatures,
+    allSignatures,
     duration: Math.round(endTime - startTime),
     rpcUrl,
     blockRange: { from: fromBlock, to: toBlock }

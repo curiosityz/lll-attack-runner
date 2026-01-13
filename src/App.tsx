@@ -166,12 +166,22 @@ function App() {
     toast.success('History cleared')
   }
 
-  const handleRPCAttackGenerated = (basis: number[][], delta: number, name: string, description: string) => {
+  const handleRPCAttackGenerated = (
+    basis: number[][], 
+    delta: number, 
+    name: string, 
+    description: string,
+    algorithm?: AlgorithmType,
+    blockSize?: number
+  ) => {
     setAttackType('signature-scan')
     setAttackName(name)
     setBasisInput(basis.map(row => row.join(' ')).join('\n'))
     setDelta(delta.toString())
-    setAlgorithm('lll')
+    setAlgorithm(algorithm || 'lll')
+    if (blockSize) {
+      setBlockSize(blockSize.toString())
+    }
     setResult(null)
     setVisualizationSteps([])
     
@@ -575,17 +585,18 @@ function App() {
             </Card>
 
             <Card className="p-6 bg-card border-border">
-              <h2 className="text-lg font-semibold mb-4">RPC Signature Scanner</h2>
+              <h2 className="text-lg font-semibold mb-4">RPC Signature Scanner & Batch Analysis</h2>
               <div className="space-y-4 text-sm">
                 <p>
                   The RPC Scanner connects to Ethereum-compatible blockchain nodes to analyze transaction signatures 
                   for cryptographic weaknesses. It automatically detects vulnerabilities and generates attack configurations.
+                  The new batch analysis feature detects patterns across multiple transactions.
                 </p>
                 
                 <Separator />
                 
                 <div>
-                  <h3 className="font-semibold mb-2">Detected Weaknesses</h3>
+                  <h3 className="font-semibold mb-2">Individual Signature Detection</h3>
                   <ul className="list-disc list-inside space-y-1 text-muted-foreground">
                     <li><strong>Nonce Reuse (Critical):</strong> Same k used in multiple signatures - private key recoverable</li>
                     <li><strong>Biased Nonces (High):</strong> Non-random k values reveal patterns exploitable via HNP</li>
@@ -598,14 +609,32 @@ function App() {
                 <Separator />
 
                 <div>
-                  <h3 className="font-semibold mb-2">Using the Scanner</h3>
+                  <h3 className="font-semibold mb-2">Batch Analysis Patterns</h3>
+                  <p className="text-muted-foreground mb-2">
+                    Batch analysis examines all scanned signatures to detect multi-transaction patterns:
+                  </p>
+                  <ul className="list-disc list-inside space-y-1 text-muted-foreground">
+                    <li><strong>Nonce Reuse Clusters:</strong> Multiple signatures sharing the same r-value across addresses</li>
+                    <li><strong>Sequential Nonces:</strong> Predictable progression of k-values in consecutive signatures</li>
+                    <li><strong>Biased LSB/MSB:</strong> Statistical bias in least/most significant bits of nonces</li>
+                    <li><strong>Temporal Correlation:</strong> Nonces that correlate with transaction timestamps</li>
+                    <li><strong>Address Clustering:</strong> High-activity addresses with low entropy signatures</li>
+                    <li><strong>Cross-Address Correlation:</strong> Similar r-values across different addresses</li>
+                  </ul>
+                </div>
+
+                <Separator />
+
+                <div>
+                  <h3 className="font-semibold mb-2">Using Batch Analysis</h3>
                   <div className="space-y-2 text-muted-foreground">
-                    <p>1. Enter your RPC endpoint URL (Infura, Alchemy, or local node)</p>
-                    <p>2. Specify block range to scan (max 1000 blocks per scan)</p>
-                    <p>3. Click "Scan for Weak Signatures"</p>
-                    <p>4. Review detected weaknesses and severity ratings</p>
-                    <p>5. Click "Generate Attack Configuration" to auto-create lattice</p>
-                    <p>6. Switch to Attack tab and run the generated configuration</p>
+                    <p>1. Scan a block range with "Scan for Weak Signatures"</p>
+                    <p>2. Click "Run Batch Analysis" to detect cross-transaction patterns</p>
+                    <p>3. Review pattern clusters with confidence scores and metadata</p>
+                    <p>4. Check statistical patterns for entropy reduction and bit bias</p>
+                    <p>5. Read recommendations for optimal attack strategy</p>
+                    <p>6. Click "Generate Attack from Cluster" on any pattern</p>
+                    <p>7. Batch attacks automatically select LLL or BKZ with optimal parameters</p>
                   </div>
                 </div>
 
@@ -614,9 +643,11 @@ function App() {
                 <div>
                   <h3 className="font-semibold mb-2">Attack Generation</h3>
                   <p className="text-muted-foreground">
-                    For each detected weakness, the scanner automatically constructs an appropriate lattice basis 
-                    that can be used to recover private keys or exploit the vulnerability. Nonce reuse attacks 
-                    allow direct key recovery, while biased nonces require Hidden Number Problem (HNP) lattice reduction.
+                    For each detected weakness or pattern cluster, the scanner automatically constructs an appropriate 
+                    lattice basis that can be used to recover private keys or exploit the vulnerability. Nonce reuse 
+                    attacks allow direct key recovery, while biased nonces require Hidden Number Problem (HNP) lattice 
+                    reduction. Batch attacks intelligently select between LLL and BKZ algorithms with optimal block sizes 
+                    based on pattern complexity.
                   </p>
                 </div>
               </div>
@@ -638,7 +669,7 @@ function App() {
                     2
                   </div>
                   <div>
-                    <strong>Scan RPC (Optional):</strong> Use RPC Scanner to detect real weak signatures and auto-generate attacks
+                    <strong>Scan & Analyze:</strong> Use RPC Scanner to detect weak signatures, then run Batch Analysis to find cross-transaction patterns
                   </div>
                 </div>
                 <div className="flex gap-3">
