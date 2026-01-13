@@ -32,6 +32,9 @@ import {
   AutomationHistory as AutomationHistoryType
 } from '@/lib/automation'
 import { AttackHistory } from '@/lib/types'
+import { BlockProgressionChart } from '@/components/BlockProgressionChart'
+import { WeaknessStats } from '@/components/WeaknessStats'
+import { LiveMonitor } from '@/components/LiveMonitor'
 
 interface AutomationControlProps {
   onAttackHistoryUpdate: (history: AttackHistory[]) => void
@@ -160,6 +163,12 @@ export function AutomationControl({ onAttackHistoryUpdate }: AutomationControlPr
 
   return (
     <div className="space-y-6">
+      <LiveMonitor 
+        state={state} 
+        startBlock={config?.startBlock} 
+        scanBatchSize={config?.scanBatchSize}
+      />
+
       <Card className="p-6 bg-card border-border">
         <div className="flex items-center justify-between mb-6">
           <div className="flex items-center gap-3">
@@ -438,6 +447,11 @@ export function AutomationControl({ onAttackHistoryUpdate }: AutomationControlPr
       </Card>
 
       <div className="grid lg:grid-cols-2 gap-6">
+        <BlockProgressionChart history={state?.history || []} />
+        <WeaknessStats history={state?.history || []} />
+      </div>
+
+      <div className="grid lg:grid-cols-2 gap-6">
         <Card className="p-6 bg-card border-border">
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-2">
@@ -479,9 +493,52 @@ export function AutomationControl({ onAttackHistoryUpdate }: AutomationControlPr
                     </div>
                     <p className="text-muted-foreground">{entry.details}</p>
                     {entry.blocksScanned && (
-                      <p className="text-muted-foreground mt-1">
-                        Blocks: {entry.blocksScanned.from} - {entry.blocksScanned.to}
-                      </p>
+                      <div className="mt-2 pt-2 border-t border-border/30">
+                        <div className="flex items-center gap-2 text-[10px] text-muted-foreground mb-1">
+                          <span className="font-mono">
+                            Blocks: {entry.blocksScanned.from.toLocaleString()} - {entry.blocksScanned.to.toLocaleString()}
+                          </span>
+                          <span className="text-accent">
+                            ({(entry.blocksScanned.to - entry.blocksScanned.from + 1).toLocaleString()} blocks)
+                          </span>
+                        </div>
+                        {entry.weaknessesFound !== undefined && entry.weaknessesFound > 0 && (
+                          <div className="flex items-center gap-1 flex-wrap">
+                            <Badge variant="outline" className="text-[10px] bg-destructive/10 text-destructive border-destructive/30">
+                              {entry.weaknessesFound} weakness{entry.weaknessesFound !== 1 ? 'es' : ''}
+                            </Badge>
+                            {entry.weaknessesByType && Object.entries(entry.weaknessesByType).map(([type, count]) => (
+                              <Badge key={type} variant="outline" className="text-[9px] bg-secondary/50 border-border/50">
+                                {type}: {count}
+                              </Badge>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                    {entry.patternsDetected !== undefined && entry.patternsDetected > 0 && (
+                      <div className="mt-2 flex items-center gap-2">
+                        <Badge variant="outline" className="text-[10px] bg-purple-500/10 text-purple-400 border-purple-500/30">
+                          {entry.patternsDetected} pattern{entry.patternsDetected !== 1 ? 's' : ''}
+                        </Badge>
+                        {entry.avgConfidence !== undefined && (
+                          <span className="text-[10px] text-muted-foreground">
+                            Avg confidence: {(entry.avgConfidence * 100).toFixed(0)}%
+                          </span>
+                        )}
+                      </div>
+                    )}
+                    {entry.attacksExecuted !== undefined && entry.attacksExecuted > 0 && (
+                      <div className="mt-2 flex items-center gap-2">
+                        <Badge variant="outline" className="text-[10px] bg-accent/10 text-accent border-accent/30">
+                          {entry.attacksExecuted} attack{entry.attacksExecuted !== 1 ? 's' : ''}
+                        </Badge>
+                        {entry.successfulAttacks !== undefined && (
+                          <Badge variant="outline" className="text-[10px] bg-success/10 text-success border-success/30">
+                            {entry.successfulAttacks} succeeded
+                          </Badge>
+                        )}
+                      </div>
                     )}
                   </div>
                 ))}

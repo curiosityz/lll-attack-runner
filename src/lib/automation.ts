@@ -49,7 +49,11 @@ export interface AutomationHistory {
   action: string
   blocksScanned?: { from: number; to: number }
   weaknessesFound?: number
+  weaknessesByType?: Record<string, number>
   attacksExecuted?: number
+  successfulAttacks?: number
+  patternsDetected?: number
+  avgConfidence?: number
   success: boolean
   details: string
 }
@@ -187,6 +191,7 @@ export class AutomationEngine {
         true,
         {
           attacksExecuted: result.attackResults.length,
+          successfulAttacks: result.attackResults.filter(r => r.result.success).length,
           weaknessesFound: result.scanResult?.weakSignatures.length || 0
         }
       )
@@ -240,9 +245,15 @@ export class AutomationEngine {
         console.log('[Automation] Updated startBlock to:', this.config.startBlock)
       }
 
+      const weaknessesByType: Record<string, number> = {}
+      result.scanResult.weakSignatures.forEach(sig => {
+        weaknessesByType[sig.weakness] = (weaknessesByType[sig.weakness] || 0) + 1
+      })
+
       this.addHistory('scan-complete', `Scanned blocks ${currentBlock}-${endBlock}: ${result.scanResult.weakSignatures.length} weakness(es) found`, true, {
         blocksScanned: { from: currentBlock, to: endBlock },
-        weaknessesFound: result.scanResult.weakSignatures.length
+        weaknessesFound: result.scanResult.weakSignatures.length,
+        weaknessesByType
       })
 
       if (result.scanResult.weakSignatures.length === 0) {
@@ -257,7 +268,14 @@ export class AutomationEngine {
         
         result.batchAnalysis = performBatchAnalysis(result.scanResult.allSignatures)
         
-        this.addHistory('analysis-complete', `Found ${result.batchAnalysis.clusters.length} pattern clusters`, true)
+        const avgConfidence = result.batchAnalysis.clusters.length > 0
+          ? result.batchAnalysis.clusters.reduce((sum, c) => sum + c.confidence, 0) / result.batchAnalysis.clusters.length
+          : 0
+        
+        this.addHistory('analysis-complete', `Found ${result.batchAnalysis.clusters.length} pattern clusters`, true, {
+          patternsDetected: result.batchAnalysis.clusters.length,
+          avgConfidence: Math.round(avgConfidence * 100) / 100
+        })
       }
 
       if (this.config.autoAnalyze && result.batchAnalysis) {
@@ -284,9 +302,16 @@ export class AutomationEngine {
         
         result.attackResults = await this.executeAttackQueue()
         
+        const successCount = result.attackResults.filter(r => r.result.success).length
+        
         this.updateState({
           totalAttacksExecuted: this.state.totalAttacksExecuted + result.attackResults.length,
-          successfulAttacks: this.state.successfulAttacks + result.attackResults.filter(r => r.result.success).length
+          successfulAttacks: this.state.successfulAttacks + successCount
+        })
+        
+        this.addHistory('attacks-executed', `Executed ${result.attackResults.length} attacks`, true, {
+          attacksExecuted: result.attackResults.length,
+          successfulAttacks: successCount
         })
       }
 
