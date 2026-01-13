@@ -1,14 +1,14 @@
 # Planning Guide
 
-An interactive web application for running LLL (Lenstra-Lenstra-Lovász) lattice basis reduction attacks on cryptographic problems, with visual feedback and educational context.
+An interactive web application for running advanced lattice basis reduction attacks (LLL, BKZ) on cryptographic problems, with RPC blockchain signature scanning, automated attack generation, visual feedback and educational context.
 
 **Experience Qualities**:
 1. **Precise** - The interface should convey technical accuracy and mathematical rigor appropriate for cryptographic analysis
-2. **Educational** - Users should understand the attack process through clear visualization and step-by-step feedback
-3. **Powerful** - The tool should feel capable and professional, suitable for both learning and research purposes
+2. **Automated** - Users can automatically detect real-world vulnerabilities and generate attack configurations
+3. **Powerful** - The tool should feel capable and professional, suitable for both security research and education
 
 **Complexity Level**: Light Application (multiple features with basic state)
-- This is a specialized tool with multiple attack vectors, input methods, and result visualization, but doesn't require complex multi-view navigation or advanced state management beyond storing attack history.
+- This is a specialized tool with multiple attack vectors, RPC blockchain scanning, automated lattice generation, input methods, and result visualization, but doesn't require complex multi-view navigation or advanced state management beyond storing attack history.
 
 ## Essential Features
 
@@ -20,11 +20,25 @@ An interactive web application for running LLL (Lenstra-Lenstra-Lovász) lattice
 - **Success criteria**: Valid mathematical input accepted, clear error messages for invalid configurations
 
 ### Attack Execution
-- **Functionality**: Run the LLL algorithm on the configured lattice and display results
-- **Purpose**: Perform the actual lattice reduction and find short vectors
-- **Trigger**: User clicks "Run Attack" button after configuration
-- **Progression**: Initiate computation → Show progress indicator → Display reduced basis → Highlight solution vector → Show attack success/failure
-- **Success criteria**: Algorithm completes, results are mathematically sound, clear indication of attack success
+- **Functionality**: Run LLL or BKZ algorithms on the configured lattice and display results
+- **Purpose**: Perform lattice reduction with choice of algorithm strength
+- **Trigger**: User clicks "Run Attack" button after selecting algorithm (LLL/BKZ) and parameters
+- **Progression**: Select algorithm → Configure block size (BKZ) → Initiate computation → Show progress indicator → Display reduced basis → Highlight solution vector → Show attack success/failure with algorithm metrics
+- **Success criteria**: Algorithm completes, results are mathematically sound, clear indication of attack success with algorithm details
+
+### RPC Signature Scanner
+- **Functionality**: Connect to Ethereum-compatible RPC nodes and scan transaction signatures for cryptographic weaknesses
+- **Purpose**: Automatically detect real-world signature vulnerabilities (nonce reuse, bias, small r-values) in blockchain data
+- **Trigger**: User enters RPC endpoint and block range, clicks "Scan for Weak Signatures"
+- **Progression**: Enter RPC URL → Specify block range → Initiate scan → Monitor progress → Display detected weaknesses with severity → Click weakness to auto-generate lattice attack → Switch to Attack tab with pre-configured basis
+- **Success criteria**: Successfully connects to RPC, scans blocks, identifies known weaknesses, generates valid lattice configurations for detected vulnerabilities
+
+### Automated Attack Generation
+- **Functionality**: Automatically construct lattice basis from detected signature weaknesses
+- **Purpose**: Bridge gap between vulnerability detection and attack execution without manual lattice construction
+- **Trigger**: User clicks "Generate Attack Configuration" on a detected weak signature
+- **Progression**: Detect weakness → Analyze signature parameters → Construct appropriate lattice (HNP for bias, direct computation for reuse) → Pre-fill Attack tab → Ready to execute
+- **Success criteria**: Generated lattice is mathematically correct for the weakness type, attack successfully recovers keys or demonstrates vulnerability
 
 ### Attack History
 - **Functionality**: Store and display previous attack attempts with their parameters and results
@@ -58,10 +72,13 @@ An interactive web application for running LLL (Lenstra-Lenstra-Lovász) lattice
 
 - **Invalid Matrix Input**: Detect non-numeric, malformed, or non-square matrices and show inline validation errors
 - **Singular Matrices**: Warn when basis is not linearly independent before running attack
-- **Large Computations**: Show warning for high-dimension lattices that may take significant time
+- **Large Computations**: Show warning for high-dimension lattices or large BKZ block sizes that may take significant time
 - **Empty History**: Display helpful empty state encouraging first attack
 - **Numerical Overflow**: Handle very large integers gracefully, suggest scaling parameters
 - **Failed Attacks**: Clearly distinguish between algorithm completion and attack success/failure
+- **RPC Connection Failures**: Handle network errors, invalid endpoints, rate limits gracefully with clear error messages
+- **Empty Signature Scans**: When no vulnerabilities found, show positive confirmation rather than error state
+- **Invalid Block Ranges**: Validate block numbers and enforce maximum scan range (1000 blocks)
 
 ## Design Direction
 

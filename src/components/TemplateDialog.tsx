@@ -35,7 +35,8 @@ export function TemplateDialog({ open, onOpenChange, onSelectTemplate }: Templat
     cvp: 'CVP',
     hnp: 'HNP',
     ntru: 'NTRU',
-    dsa: 'DSA'
+    dsa: 'DSA',
+    'signature-scan': 'Sig Scan'
   }
 
   const getCategoryColor = (type: AttackType) => {
@@ -47,7 +48,8 @@ export function TemplateDialog({ open, onOpenChange, onSelectTemplate }: Templat
       hnp: 'bg-orange-500/10 text-orange-400 border-orange-500/20',
       ntru: 'bg-pink-500/10 text-pink-400 border-pink-500/20',
       dsa: 'bg-yellow-500/10 text-yellow-400 border-yellow-500/20',
-      custom: 'bg-muted text-muted-foreground border-border'
+      custom: 'bg-muted text-muted-foreground border-border',
+      'signature-scan': 'bg-cyan-500/10 text-cyan-400 border-cyan-500/20'
     }
     return colors[type]
   }

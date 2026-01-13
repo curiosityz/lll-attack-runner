@@ -10,10 +10,11 @@ import { Alert, AlertDescription } from '@/components/ui/alert'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Separator } from '@/components/ui/separator'
 import { Checkbox } from '@/components/ui/checkbox'
-import { Play, Lightbulb, Calculator, ListBullets, ChartLine } from '@phosphor-icons/react'
+import { Play, Lightbulb, Calculator, ListBullets, ChartLine, CloudArrowDown } from '@phosphor-icons/react'
 import { toast } from 'sonner'
-import { AttackHistory, AttackType, AttackTemplate, LLLStep } from '@/lib/types'
+import { AttackHistory, AttackType, AttackTemplate, LLLStep, AlgorithmType } from '@/lib/types'
 import { runLLL, parseBasisFromString } from '@/lib/lll'
+import { runBKZ } from '@/lib/bkz'
 import { MatrixInput } from '@/components/MatrixInput'
 import { VectorDisplay } from '@/components/VectorDisplay'
 import { AttackCard } from '@/components/AttackCard'
@@ -21,6 +22,7 @@ import { TemplateDialog } from '@/components/TemplateDialog'
 import { VectorVisualization } from '@/components/VectorVisualization'
 import { MatrixHeatmap } from '@/components/MatrixHeatmap'
 import { OrthogonalityChart } from '@/components/OrthogonalityChart'
+import { RPCScanner } from '@/components/RPCScanner'
 
 function App() {
   const [attackHistory, setAttackHistory] = useKV<AttackHistory[]>('attack-history', [])
@@ -29,6 +31,8 @@ function App() {
   const [attackName, setAttackName] = useState('Custom Attack')
   const [basisInput, setBasisInput] = useState('1 2 3\n4 5 6\n7 8 9')
   const [delta, setDelta] = useState('0.75')
+  const [algorithm, setAlgorithm] = useState<AlgorithmType>('lll')
+  const [blockSize, setBlockSize] = useState('10')
   const [isRunning, setIsRunning] = useState(false)
   const [captureVisualization, setCaptureVisualization] = useState(false)
   const [visualizationSteps, setVisualizationSteps] = useState<LLLStep[]>([])
@@ -39,6 +43,8 @@ function App() {
     executionTime: number
     success: boolean
     solutionVector?: number[]
+    algorithm?: AlgorithmType
+    blockSize?: number
   } | null>(null)
   const [templateDialogOpen, setTemplateDialogOpen] = useState(false)
 
@@ -62,9 +68,22 @@ function App() {
     await new Promise(resolve => setTimeout(resolve, 100))
 
     const startTime = performance.now()
-    const lllResult = runLLL(basis, deltaValue, captureVisualization)
+    
+    let lllResult: any
+    
+    if (algorithm === 'bkz') {
+      const blockSizeValue = parseInt(blockSize)
+      if (isNaN(blockSizeValue) || blockSizeValue < 2) {
+        toast.error('Block size must be at least 2')
+        setIsRunning(false)
+        return
+      }
+      lllResult = runBKZ(basis, blockSizeValue, deltaValue, captureVisualization)
+    } else {
+      lllResult = runLLL(basis, deltaValue, captureVisualization)
+    }
+    
     const endTime = performance.now()
-
     const executionTime = Math.round(endTime - startTime)
 
     const newResult = {
@@ -72,7 +91,9 @@ function App() {
       iterations: lllResult.iterations,
       executionTime,
       success: lllResult.success,
-      solutionVector: lllResult.solutionVector
+      solutionVector: lllResult.solutionVector,
+      algorithm,
+      blockSize: algorithm === 'bkz' ? lllResult.blockSize : undefined
     }
 
     setResult(newResult)
@@ -90,7 +111,9 @@ function App() {
         name: attackName,
         basis,
         delta: deltaValue,
-        timestamp: Date.now()
+        timestamp: Date.now(),
+        algorithm,
+        blockSize: algorithm === 'bkz' ? parseInt(blockSize) : undefined
       },
       result: {
         configId: Date.now().toString(),
@@ -99,14 +122,16 @@ function App() {
         solutionVector: lllResult.solutionVector,
         iterations: lllResult.iterations,
         executionTime,
-        timestamp: Date.now()
+        timestamp: Date.now(),
+        algorithm,
+        blockSize: algorithm === 'bkz' ? lllResult.blockSize : undefined
       }
     }
 
     setAttackHistory((current) => [newHistory, ...(current || [])].slice(0, 50))
 
     if (lllResult.success) {
-      toast.success('Attack completed successfully!')
+      toast.success(`Attack completed successfully! (${algorithm.toUpperCase()})`)
     } else {
       toast.error('Attack completed but may not have converged')
     }
@@ -127,6 +152,10 @@ function App() {
     setAttackName(history.config.name)
     setBasisInput(history.config.basis.map(row => row.join(' ')).join('\n'))
     setDelta(history.config.delta.toString())
+    setAlgorithm(history.config.algorithm || 'lll')
+    if (history.config.blockSize) {
+      setBlockSize(history.config.blockSize.toString())
+    }
     setResult(null)
     setVisualizationSteps([])
     toast.success('Configuration restored')
@@ -137,24 +166,42 @@ function App() {
     toast.success('History cleared')
   }
 
+  const handleRPCAttackGenerated = (basis: number[][], delta: number, name: string, description: string) => {
+    setAttackType('signature-scan')
+    setAttackName(name)
+    setBasisInput(basis.map(row => row.join(' ')).join('\n'))
+    setDelta(delta.toString())
+    setAlgorithm('lll')
+    setResult(null)
+    setVisualizationSteps([])
+    
+    toast.success(`${name} configured - ready to run!`, {
+      description: description
+    })
+  }
+
   return (
     <div className="min-h-screen bg-background p-4 md:p-6">
       <div className="max-w-7xl mx-auto">
         <header className="mb-8">
           <div className="flex items-center gap-3 mb-2">
             <Calculator size={32} className="text-accent" weight="bold" />
-            <h1 className="text-3xl font-bold tracking-tight">LLL Attack Runner</h1>
+            <h1 className="text-3xl font-bold tracking-tight">Advanced LLL/BKZ Attack Runner</h1>
           </div>
           <p className="text-sm text-muted-foreground">
-            Lattice basis reduction tool for cryptographic analysis
+            Lattice basis reduction with RPC signature scanning and automated attack generation
           </p>
         </header>
 
         <Tabs defaultValue="attack" className="space-y-6">
-          <TabsList className="grid w-full grid-cols-4 max-w-2xl">
+          <TabsList className="grid w-full grid-cols-5 max-w-3xl">
             <TabsTrigger value="attack">
               <Play size={16} className="mr-2" />
               Attack
+            </TabsTrigger>
+            <TabsTrigger value="scanner">
+              <CloudArrowDown size={16} className="mr-2" />
+              RPC Scanner
             </TabsTrigger>
             <TabsTrigger value="visualization" disabled={visualizationSteps.length === 0}>
               <ChartLine size={16} className="mr-2" />
@@ -204,9 +251,47 @@ function App() {
                           <SelectItem value="hnp">Hidden Number Problem</SelectItem>
                           <SelectItem value="ntru">NTRU</SelectItem>
                           <SelectItem value="dsa">DSA/ECDSA</SelectItem>
+                          <SelectItem value="signature-scan">Signature Scan</SelectItem>
                         </SelectContent>
                       </Select>
                     </div>
+
+                    <div>
+                      <Label htmlFor="algorithm" className="text-sm font-medium mb-2 block">
+                        Algorithm
+                      </Label>
+                      <Select value={algorithm} onValueChange={(v) => setAlgorithm(v as AlgorithmType)}>
+                        <SelectTrigger id="algorithm">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="lll">LLL (Standard)</SelectItem>
+                          <SelectItem value="bkz">BKZ (Block Korkine-Zolotarev)</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <p className="text-xs text-muted-foreground mt-1">
+                        BKZ provides stronger reduction but takes longer
+                      </p>
+                    </div>
+
+                    {algorithm === 'bkz' && (
+                      <div>
+                        <Label htmlFor="block-size" className="text-sm font-medium mb-2 block">
+                          Block Size
+                        </Label>
+                        <Input
+                          id="block-size"
+                          type="number"
+                          min="2"
+                          max="30"
+                          value={blockSize}
+                          onChange={(e) => setBlockSize(e.target.value)}
+                        />
+                        <p className="text-xs text-muted-foreground mt-1">
+                          Larger blocks = better reduction but slower (typical: 10-20)
+                        </p>
+                      </div>
+                    )}
 
                     <div>
                       <Label htmlFor="attack-name" className="text-sm font-medium mb-2 block">
@@ -293,6 +378,16 @@ function App() {
                       
                       <div className="grid grid-cols-2 gap-4 mb-4">
                         <div>
+                          <div className="text-xs text-muted-foreground mb-1">Algorithm</div>
+                          <div className="text-lg font-semibold">{result.algorithm?.toUpperCase() || 'LLL'}</div>
+                        </div>
+                        {result.blockSize && (
+                          <div>
+                            <div className="text-xs text-muted-foreground mb-1">Block Size</div>
+                            <div className="text-lg font-semibold">{result.blockSize}</div>
+                          </div>
+                        )}
+                        <div>
                           <div className="text-xs text-muted-foreground mb-1">Iterations</div>
                           <div className="text-lg font-semibold">{result.iterations}</div>
                         </div>
@@ -338,6 +433,10 @@ function App() {
                 )}
               </div>
             </div>
+          </TabsContent>
+
+          <TabsContent value="scanner" className="space-y-6">
+            <RPCScanner onAttackGenerated={handleRPCAttackGenerated} />
           </TabsContent>
 
           <TabsContent value="visualization" className="space-y-6">
@@ -411,22 +510,23 @@ function App() {
 
           <TabsContent value="help" className="space-y-6">
             <Card className="p-6 bg-card border-border">
-              <h2 className="text-lg font-semibold mb-4">About LLL Algorithm</h2>
+              <h2 className="text-lg font-semibold mb-4">About LLL & BKZ Algorithms</h2>
               <div className="space-y-4 text-sm">
                 <p>
                   The <strong>Lenstra-Lenstra-Lovász (LLL)</strong> algorithm is a polynomial-time lattice basis 
                   reduction algorithm that finds a "reduced" basis with relatively short, nearly orthogonal vectors.
+                  <strong> BKZ (Block Korkine-Zolotarev)</strong> extends LLL with block-wise processing for stronger reduction.
                 </p>
                 
                 <Separator />
                 
                 <div>
-                  <h3 className="font-semibold mb-2">How It Works</h3>
+                  <h3 className="font-semibold mb-2">How They Work</h3>
                   <ul className="list-disc list-inside space-y-1 text-muted-foreground">
-                    <li>Takes a lattice basis (set of vectors) as input</li>
-                    <li>Iteratively reduces vectors using Gram-Schmidt orthogonalization</li>
-                    <li>Swaps vectors when Lovász condition is violated</li>
-                    <li>Produces a basis with shorter, more orthogonal vectors</li>
+                    <li><strong>LLL:</strong> Iteratively reduces vectors using Gram-Schmidt orthogonalization and swaps</li>
+                    <li><strong>BKZ:</strong> Applies LLL to local blocks + SVP enumeration for better reduction</li>
+                    <li>Both produce bases with shorter, more orthogonal vectors</li>
+                    <li>BKZ provides stronger guarantees but requires more computation</li>
                   </ul>
                 </div>
 
@@ -439,20 +539,22 @@ function App() {
                     <li><strong>Subset Sum:</strong> Solve NP-complete problems with low density</li>
                     <li><strong>Knapsack:</strong> Break Merkle-Hellman and similar cryptosystems</li>
                     <li><strong>Hidden Number Problem:</strong> Recover secret keys from partial information</li>
+                    <li><strong>ECDSA/DSA:</strong> Exploit nonce reuse or bias in signature schemes</li>
                   </ul>
                 </div>
 
                 <Separator />
 
                 <div>
-                  <h3 className="font-semibold mb-2">Delta Parameter</h3>
-                  <p className="text-muted-foreground">
-                    The delta (δ) parameter controls the quality of reduction. Values closer to 1 produce 
-                    better reduced bases but take longer. Common values:
+                  <h3 className="font-semibold mb-2">Algorithm Selection</h3>
+                  <p className="text-muted-foreground mb-2">
+                    Choose the appropriate algorithm for your attack:
                   </p>
-                  <ul className="list-disc list-inside mt-2 space-y-1 text-muted-foreground">
-                    <li><strong>0.75:</strong> Standard LLL, fast computation</li>
-                    <li><strong>0.99:</strong> Better reduction, slower but more accurate</li>
+                  <ul className="list-disc list-inside space-y-1 text-muted-foreground">
+                    <li><strong>LLL (δ=0.75):</strong> Fast, good for most attacks and learning</li>
+                    <li><strong>LLL (δ=0.99):</strong> Better reduction, still fast enough for practice</li>
+                    <li><strong>BKZ (block=10):</strong> Stronger reduction, good balance of speed/quality</li>
+                    <li><strong>BKZ (block=20+):</strong> Highest quality, use for challenging problems</li>
                   </ul>
                 </div>
 
@@ -473,6 +575,54 @@ function App() {
             </Card>
 
             <Card className="p-6 bg-card border-border">
+              <h2 className="text-lg font-semibold mb-4">RPC Signature Scanner</h2>
+              <div className="space-y-4 text-sm">
+                <p>
+                  The RPC Scanner connects to Ethereum-compatible blockchain nodes to analyze transaction signatures 
+                  for cryptographic weaknesses. It automatically detects vulnerabilities and generates attack configurations.
+                </p>
+                
+                <Separator />
+                
+                <div>
+                  <h3 className="font-semibold mb-2">Detected Weaknesses</h3>
+                  <ul className="list-disc list-inside space-y-1 text-muted-foreground">
+                    <li><strong>Nonce Reuse (Critical):</strong> Same k used in multiple signatures - private key recoverable</li>
+                    <li><strong>Biased Nonces (High):</strong> Non-random k values reveal patterns exploitable via HNP</li>
+                    <li><strong>Similar k Values (High):</strong> Close nonce values indicate weak RNG</li>
+                    <li><strong>Small r Values (Critical):</strong> Extremely small r suggests implementation errors</li>
+                    <li><strong>High s Values (Low):</strong> Non-canonical signatures (normalization issue)</li>
+                  </ul>
+                </div>
+
+                <Separator />
+
+                <div>
+                  <h3 className="font-semibold mb-2">Using the Scanner</h3>
+                  <div className="space-y-2 text-muted-foreground">
+                    <p>1. Enter your RPC endpoint URL (Infura, Alchemy, or local node)</p>
+                    <p>2. Specify block range to scan (max 1000 blocks per scan)</p>
+                    <p>3. Click "Scan for Weak Signatures"</p>
+                    <p>4. Review detected weaknesses and severity ratings</p>
+                    <p>5. Click "Generate Attack Configuration" to auto-create lattice</p>
+                    <p>6. Switch to Attack tab and run the generated configuration</p>
+                  </div>
+                </div>
+
+                <Separator />
+
+                <div>
+                  <h3 className="font-semibold mb-2">Attack Generation</h3>
+                  <p className="text-muted-foreground">
+                    For each detected weakness, the scanner automatically constructs an appropriate lattice basis 
+                    that can be used to recover private keys or exploit the vulnerability. Nonce reuse attacks 
+                    allow direct key recovery, while biased nonces require Hidden Number Problem (HNP) lattice reduction.
+                  </p>
+                </div>
+              </div>
+            </Card>
+
+            <Card className="p-6 bg-card border-border">
               <h2 className="text-lg font-semibold mb-4">Quick Start</h2>
               <div className="space-y-3 text-sm">
                 <div className="flex gap-3">
@@ -488,7 +638,7 @@ function App() {
                     2
                   </div>
                   <div>
-                    <strong>Configure Attack:</strong> Adjust the basis matrix, delta parameter, and attack type
+                    <strong>Scan RPC (Optional):</strong> Use RPC Scanner to detect real weak signatures and auto-generate attacks
                   </div>
                 </div>
                 <div className="flex gap-3">
@@ -496,7 +646,7 @@ function App() {
                     3
                   </div>
                   <div>
-                    <strong>Run Attack:</strong> Click "Run Attack" to execute the LLL algorithm
+                    <strong>Configure Attack:</strong> Select algorithm (LLL/BKZ), adjust parameters, and set block size if using BKZ
                   </div>
                 </div>
                 <div className="flex gap-3">
@@ -504,7 +654,15 @@ function App() {
                     4
                   </div>
                   <div>
-                    <strong>Analyze Results:</strong> View the reduced basis and solution vector
+                    <strong>Run Attack:</strong> Click "Run Attack" to execute the lattice reduction
+                  </div>
+                </div>
+                <div className="flex gap-3">
+                  <div className="flex-shrink-0 w-6 h-6 rounded-full bg-primary text-primary-foreground flex items-center justify-center text-xs font-bold">
+                    5
+                  </div>
+                  <div>
+                    <strong>Analyze Results:</strong> View the reduced basis, solution vector, and visualizations
                   </div>
                 </div>
               </div>

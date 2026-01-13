@@ -1,4 +1,6 @@
-export type AttackType = 'rsa' | 'subset-sum' | 'knapsack' | 'cvp' | 'hnp' | 'ntru' | 'dsa' | 'custom'
+export type AttackType = 'rsa' | 'subset-sum' | 'knapsack' | 'cvp' | 'hnp' | 'ntru' | 'dsa' | 'custom' | 'signature-scan'
+
+export type AlgorithmType = 'lll' | 'bkz'
 
 export interface AttackConfig {
   id: string
@@ -7,6 +9,10 @@ export interface AttackConfig {
   basis: number[][]
   delta: number
   timestamp: number
+  algorithm?: AlgorithmType
+  blockSize?: number
+  rpcUrl?: string
+  blockRange?: { from: number; to: number }
 }
 
 export interface AttackResult {
@@ -17,6 +23,9 @@ export interface AttackResult {
   iterations: number
   executionTime: number
   timestamp: number
+  algorithm?: AlgorithmType
+  blockSize?: number
+  weaknessDetected?: string
 }
 
 export interface AttackHistory {
