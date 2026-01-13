@@ -767,7 +767,28 @@ function App() {
                     <li><strong>403/401 Errors:</strong> Check your API key is correct in the URL.</li>
                     <li><strong>Continuous Scan Not Working:</strong> Make sure "Enable Continuous Scanning" is toggled ON before clicking "Start Auto".</li>
                     <li><strong>Many Consecutive Errors:</strong> The scanner will automatically retry with exponential backoff. Check your RPC endpoint health.</li>
+                    <li><strong>CORS Errors:</strong> The app uses multiple CORS proxy services automatically. If one fails, it switches to the next available proxy. Check the CORS Proxy Status panel for active proxy and health metrics.</li>
                   </ul>
+                </div>
+
+                <Separator />
+
+                <div>
+                  <h3 className="font-semibold mb-2">CORS Proxy Redundancy</h3>
+                  <p className="text-muted-foreground mb-2">
+                    All RPC requests automatically route through CORS proxies to bypass browser restrictions. The system includes 5 different proxy services for redundancy:
+                  </p>
+                  <ul className="list-disc list-inside space-y-1 text-muted-foreground">
+                    <li><strong>corsproxy.io:</strong> Primary proxy - fast and reliable</li>
+                    <li><strong>cors-anywhere:</strong> Popular open-source fallback</li>
+                    <li><strong>allorigins:</strong> Alternative with good reliability</li>
+                    <li><strong>thingproxy:</strong> Lightweight backup option</li>
+                    <li><strong>cors.sh:</strong> Simple proxy with minimal overhead</li>
+                  </ul>
+                  <p className="text-muted-foreground mt-2">
+                    <strong>Automatic Failover:</strong> If a proxy fails 3 times, it's blacklisted for 5 minutes while the system uses the next available proxy. 
+                    You can monitor proxy health and reset failures in the CORS Proxy Status panel on the Scanner tab.
+                  </p>
                 </div>
               </div>
             </Card>

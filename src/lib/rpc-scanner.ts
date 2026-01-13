@@ -1,3 +1,5 @@
+import { fetchJSONWithCORSProxy, corsProxyManager } from './cors-proxy'
+
 export interface RPCSignature {
   r: string
   s: string
@@ -66,65 +68,6 @@ function modInverse(a: bigint, m: bigint): bigint {
 const SECP256K1_N = BigInt('0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141')
 const SECP256K1_HALF_N = SECP256K1_N / 2n
 
-async function fetchJSON(url: string, body: any): Promise<any> {
-  try {
-    const useCorsProxy = !url.includes('localhost') && !url.includes('127.0.0.1')
-    
-    let targetUrl = url
-    const headers: Record<string, string> = {
-      'Content-Type': 'application/json',
-    }
-    
-    if (useCorsProxy) {
-      targetUrl = `https://corsproxy.io/?${encodeURIComponent(url)}`
-      console.log('[CORS Proxy] Using proxy for:', url)
-    }
-    
-    if (url.includes('infura.io') || url.includes('alchemy.com') || url.includes('quicknode.pro')) {
-      headers['Accept'] = 'application/json'
-    }
-    
-    const response = await fetch(targetUrl, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify(body),
-      signal: AbortSignal.timeout(30000)
-    })
-    
-    if (!response.ok) {
-      let errorText = ''
-      try {
-        errorText = await response.text()
-      } catch (e) {
-        errorText = 'Unable to read error response'
-      }
-      throw new Error(`HTTP ${response.status}: ${response.statusText}${errorText ? ' - ' + errorText.slice(0, 200) : ''}`)
-    }
-    
-    const contentType = response.headers.get('content-type')
-    if (!contentType || !contentType.includes('application/json')) {
-      const text = await response.text()
-      throw new Error(`RPC endpoint returned non-JSON response: ${text.slice(0, 200)}`)
-    }
-    
-    const data = await response.json()
-    
-    if (data.error) {
-      throw new Error(`RPC Error ${data.error.code || 'UNKNOWN'}: ${data.error.message || 'Unknown error'}`)
-    }
-    
-    return data
-  } catch (error) {
-    if (error instanceof Error) {
-      if (error.name === 'AbortError' || error.message.includes('signal timed out')) {
-        throw new Error('RPC request timed out after 30 seconds. The endpoint may be overloaded or unreachable.')
-      }
-      throw error
-    }
-    throw new Error(`RPC request failed: ${String(error)}`)
-  }
-}
-
 export async function scanRPCForWeakSignatures(
   rpcUrl: string,
   fromBlock: number,
@@ -163,7 +106,7 @@ export async function scanRPCForWeakSignatures(
   console.log(`Last block hex test: ${toBlock} => ${bigIntToHex(BigInt(toBlock))}`)
   
   try {
-    const testBlock = await fetchJSON(rpcUrl, {
+    const testBlock = await fetchJSONWithCORSProxy(rpcUrl, {
       jsonrpc: '2.0',
       method: 'eth_blockNumber',
       params: [],
@@ -187,7 +130,7 @@ export async function scanRPCForWeakSignatures(
         console.log(`[RPC] Block ${blockNum} => Hex: ${blockHex} (length: ${blockHex.length})`)
       }
       
-      const blockData = await fetchJSON(rpcUrl, {
+      const blockData = await fetchJSONWithCORSProxy(rpcUrl, {
         jsonrpc: '2.0',
         method: 'eth_getBlockByNumber',
         params: [blockHex, true],

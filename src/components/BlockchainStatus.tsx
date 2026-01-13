@@ -3,6 +3,7 @@ import { Card } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { CircleNotch, CheckCircle, XCircle, Lightning } from '@phosphor-icons/react'
 import { motion, AnimatePresence } from 'framer-motion'
+import { fetchJSONWithCORSProxy } from '@/lib/cors-proxy'
 
 interface BlockchainStatusProps {
   rpcUrl: string
@@ -28,54 +29,20 @@ export function BlockchainStatus({ rpcUrl }: BlockchainStatusProps) {
       try {
         setStatus('connecting')
 
-        const headers: Record<string, string> = {
-          'Content-Type': 'application/json',
-        }
-
-        if (rpcUrl.includes('infura.io') || rpcUrl.includes('alchemy.com') || rpcUrl.includes('quicknode.pro')) {
-          headers['Accept'] = 'application/json'
-        }
-
-        const useCorsProxy = !rpcUrl.includes('localhost') && !rpcUrl.includes('127.0.0.1')
-        const targetUrl = useCorsProxy ? `https://corsproxy.io/?${encodeURIComponent(rpcUrl)}` : rpcUrl
-
-        const [blockResponse, chainResponse] = await Promise.all([
-          fetch(targetUrl, {
-            method: 'POST',
-            headers,
-            body: JSON.stringify({
-              jsonrpc: '2.0',
-              method: 'eth_blockNumber',
-              params: [],
-              id: 1,
-            }),
-            signal: AbortSignal.timeout(10000)
-          }),
-          fetch(targetUrl, {
-            method: 'POST',
-            headers,
-            body: JSON.stringify({
-              jsonrpc: '2.0',
-              method: 'eth_chainId',
-              params: [],
-              id: 2,
-            }),
-            signal: AbortSignal.timeout(10000)
-          }),
-        ])
-
-        if (!blockResponse.ok || !chainResponse.ok) {
-          throw new Error('RPC request failed')
-        }
-
         const [blockData, chainData] = await Promise.all([
-          blockResponse.json(),
-          chainResponse.json(),
+          fetchJSONWithCORSProxy(rpcUrl, {
+            jsonrpc: '2.0',
+            method: 'eth_blockNumber',
+            params: [],
+            id: 1,
+          }, 2),
+          fetchJSONWithCORSProxy(rpcUrl, {
+            jsonrpc: '2.0',
+            method: 'eth_chainId',
+            params: [],
+            id: 2,
+          }, 2),
         ])
-
-        if (blockData.error || chainData.error) {
-          throw new Error(blockData.error?.message || chainData.error?.message || 'RPC error')
-        }
 
         const newBlockNumber = parseInt(blockData.result, 16)
 
