@@ -17,6 +17,8 @@ import { generateAIPredictions, type MLPredictionResult } from '@/lib/ml-predict
 import { BatchAnalysisDisplay } from '@/components/BatchAnalysisDisplay'
 import { MLPredictionDisplay } from '@/components/MLPredictionDisplay'
 import { BlockchainStatus } from '@/components/BlockchainStatus'
+import { RPCTestUtility } from '@/components/RPCTestUtility'
+import { HexFormatTest } from '@/components/HexFormatTest'
 
 interface RPCScannerProps {
   onAttackGenerated: (basis: number[][], delta: number, name: string, description: string, algorithm?: 'lll' | 'bkz', blockSize?: number) => void
@@ -312,6 +314,11 @@ export function RPCScanner({ onAttackGenerated }: RPCScannerProps) {
   return (
     <div className="space-y-6">
       <BlockchainStatus rpcUrl={rpcUrl} />
+      
+      <div className="grid lg:grid-cols-2 gap-6">
+        <RPCTestUtility />
+        <HexFormatTest />
+      </div>
       
       <Card className="p-6 bg-card border-border">
         <h2 className="text-lg font-semibold mb-4">RPC Node Scanner</h2>

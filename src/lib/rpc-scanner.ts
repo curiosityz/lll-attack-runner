@@ -36,7 +36,8 @@ function hexToBigInt(hex: string): bigint {
 }
 
 function bigIntToHex(value: bigint): string {
-  return '0x' + value.toString(16)
+  const hexStr = value.toString(16)
+  return '0x' + hexStr
 }
 
 function modInverse(a: bigint, m: bigint): bigint {
@@ -141,7 +142,17 @@ export async function scanRPCForWeakSignatures(
     throw new Error('Please replace YOUR_API_KEY or YOUR_PROJECT_ID with your actual credentials.')
   }
   
+  if (fromBlock < 0 || toBlock < 0) {
+    throw new Error('Block numbers must be positive integers')
+  }
+  
+  if (fromBlock > toBlock) {
+    throw new Error('From block must be less than or equal to to block')
+  }
+  
   console.log(`Starting scan: blocks ${fromBlock}-${toBlock} (${totalBlocks} blocks) on ${rpcUrl}`)
+  console.log(`First block hex test: ${fromBlock} => ${bigIntToHex(BigInt(fromBlock))}`)
+  console.log(`Last block hex test: ${toBlock} => ${bigIntToHex(BigInt(toBlock))}`)
   
   try {
     const testBlock = await fetchJSON(rpcUrl, {
@@ -150,7 +161,12 @@ export async function scanRPCForWeakSignatures(
       params: [],
       id: 1
     })
-    console.log('RPC connection successful, latest block:', parseInt(testBlock.result, 16))
+    const latestBlock = parseInt(testBlock.result, 16)
+    console.log('RPC connection successful, latest block:', latestBlock)
+    
+    if (fromBlock > latestBlock) {
+      throw new Error(`Start block ${fromBlock} is beyond the latest block ${latestBlock}`)
+    }
   } catch (error) {
     throw new Error(`Failed to connect to RPC endpoint: ${error instanceof Error ? error.message : 'Unknown error'}. Please verify the URL and your network connection.`)
   }
@@ -159,8 +175,8 @@ export async function scanRPCForWeakSignatures(
     try {
       const blockHex = bigIntToHex(BigInt(blockNum))
       
-      if (blockNum === fromBlock) {
-        console.log(`[RPC] First block request: ${blockNum} -> ${blockHex}`)
+      if (blockNum === fromBlock || blockNum === toBlock || blockNum % 100 === 0) {
+        console.log(`[RPC] Block ${blockNum} => Hex: ${blockHex} (length: ${blockHex.length})`)
       }
       
       const blockData = await fetchJSON(rpcUrl, {
