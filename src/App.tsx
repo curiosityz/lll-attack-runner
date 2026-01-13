@@ -181,6 +181,10 @@ function App() {
                           <SelectItem value="rsa">RSA Attack</SelectItem>
                           <SelectItem value="subset-sum">Subset Sum</SelectItem>
                           <SelectItem value="knapsack">Knapsack</SelectItem>
+                          <SelectItem value="cvp">Closest Vector Problem</SelectItem>
+                          <SelectItem value="hnp">Hidden Number Problem</SelectItem>
+                          <SelectItem value="ntru">NTRU</SelectItem>
+                          <SelectItem value="dsa">DSA/ECDSA</SelectItem>
                         </SelectContent>
                       </Select>
                     </div>

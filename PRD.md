@@ -41,11 +41,11 @@ An interactive web application for running LLL (Lenstra-Lenstra-Lovász) lattice
 - **Success criteria**: Results are readable, solution is clearly identified, metrics help assess attack quality
 
 ### Attack Templates
-- **Functionality**: Pre-configured examples of common cryptographic attacks
-- **Purpose**: Educational starting point and quick setup for standard scenarios
-- **Trigger**: User selects from template library
-- **Progression**: Browse templates → Select template → View description → Load parameters → Modify if desired → Run
-- **Success criteria**: Templates demonstrate various attack types, clear explanations provided
+- **Functionality**: Pre-configured examples of common cryptographic attacks spanning 40+ scenarios across 8 categories (RSA, Subset Sum, Knapsack, CVP, HNP, NTRU, DSA, Custom)
+- **Purpose**: Educational starting point, quick setup for standard scenarios, and comprehensive coverage of lattice-based cryptanalysis techniques
+- **Trigger**: User selects from template library with category filtering
+- **Progression**: Browse templates → Filter by category → Select template → View description and expected outcome → Load parameters → Modify if desired → Run
+- **Success criteria**: Templates demonstrate various attack types with clear explanations, organized by category for easy navigation, covering beginner to advanced scenarios
 
 ## Edge Case Handling
 

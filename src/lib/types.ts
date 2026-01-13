@@ -1,4 +1,4 @@
-export type AttackType = 'rsa' | 'subset-sum' | 'knapsack' | 'custom'
+export type AttackType = 'rsa' | 'subset-sum' | 'knapsack' | 'cvp' | 'hnp' | 'ntru' | 'dsa' | 'custom'
 
 export interface AttackConfig {
   id: string
