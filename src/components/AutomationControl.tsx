@@ -114,9 +114,15 @@ export function AutomationControl({ onAttackHistoryUpdate }: AutomationControlPr
         setLearnedPatterns((current) => [...result.learnedPatterns, ...(current || [])])
       }
 
-      toast.success(`Workflow complete! ${result.attackResults.length} attacks executed, ${result.learnedPatterns.length} patterns learned`)
+      if (result.attackResults.length === 0 && result.learnedPatterns.length === 0) {
+        toast.info('Workflow completed - no vulnerabilities found in this scan range')
+      } else {
+        toast.success(`Workflow complete! ${result.attackResults.length} attacks executed, ${result.learnedPatterns.length} patterns learned`)
+      }
     } catch (error) {
-      toast.error(`Workflow failed: ${error instanceof Error ? error.message : 'Unknown error'}`)
+      const errorMsg = error instanceof Error ? error.message : 'Unknown error'
+      toast.error(`Workflow failed: ${errorMsg}`)
+      console.error('[AutomationControl] Workflow error:', error)
     } finally {
       setIsOneTimeRunning(false)
     }

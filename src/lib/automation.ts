@@ -185,6 +185,8 @@ export class AutomationEngine {
     try {
       const result = await this.executeFullWorkflow()
       
+      this.updateState({ lastError: undefined, currentPhase: 'idle' })
+      
       this.addHistory(
         'cycle-complete',
         `Cycle completed: ${result.attackResults.length} attacks executed, ${result.learnedPatterns.length} patterns learned`,
@@ -199,9 +201,15 @@ export class AutomationEngine {
       return result
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : 'Unknown error'
-      this.updateState({ lastError: errorMsg })
+      this.updateState({ lastError: errorMsg, currentPhase: 'idle' })
       this.addHistory('cycle-failed', `Automation cycle failed: ${errorMsg}`, false)
-      throw error
+      
+      console.error('[Automation] Cycle failed:', errorMsg)
+      
+      return {
+        attackResults: [],
+        learnedPatterns: []
+      }
     }
   }
 

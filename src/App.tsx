@@ -669,11 +669,13 @@ function App() {
                 <div>
                   <h3 className="font-semibold mb-2">Troubleshooting RPC Issues</h3>
                   <ul className="list-disc list-inside space-y-1 text-muted-foreground">
+                    <li><strong>Error -32602 (Invalid Argument):</strong> Block number format issue - should now be fixed automatically. Try restarting the scan.</li>
                     <li><strong>Connection Timeout:</strong> RPC endpoint may be slow or rate-limiting requests. Try a different provider.</li>
                     <li><strong>No Transactions Found:</strong> Recent blocks may have few transactions. Try older block ranges (e.g., 19000000-19000100).</li>
                     <li><strong>HTTP 429 Errors:</strong> Rate limit exceeded. Reduce "Blocks Per Scan" or use a paid RPC provider.</li>
                     <li><strong>403/401 Errors:</strong> Check your API key is correct in the URL.</li>
                     <li><strong>Continuous Scan Not Working:</strong> Make sure "Enable Continuous Scanning" is toggled ON before clicking "Start Auto".</li>
+                    <li><strong>Many Consecutive Errors:</strong> The scanner will automatically retry with exponential backoff. Check your RPC endpoint health.</li>
                   </ul>
                 </div>
               </div>

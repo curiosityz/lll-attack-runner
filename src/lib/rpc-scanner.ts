@@ -36,9 +36,7 @@ function hexToBigInt(hex: string): bigint {
 }
 
 function bigIntToHex(value: bigint): string {
-  let hex = value.toString(16)
-  if (hex.length % 2) hex = '0' + hex
-  return '0x' + hex
+  return '0x' + value.toString(16)
 }
 
 function modInverse(a: bigint, m: bigint): bigint {
@@ -159,10 +157,16 @@ export async function scanRPCForWeakSignatures(
   
   for (let blockNum = fromBlock; blockNum <= toBlock; blockNum++) {
     try {
+      const blockHex = bigIntToHex(BigInt(blockNum))
+      
+      if (blockNum === fromBlock) {
+        console.log(`[RPC] First block request: ${blockNum} -> ${blockHex}`)
+      }
+      
       const blockData = await fetchJSON(rpcUrl, {
         jsonrpc: '2.0',
         method: 'eth_getBlockByNumber',
-        params: [bigIntToHex(BigInt(blockNum)), true],
+        params: [blockHex, true],
         id: blockNum
       })
       
@@ -255,15 +259,19 @@ export async function scanRPCForWeakSignatures(
     } catch (error) {
       consecutiveErrors++
       totalErrors++
-      console.error(`Failed to process block ${blockNum}:`, error)
+      const errorMsg = error instanceof Error ? error.message : 'Unknown error'
+      console.error(`Failed to process block ${blockNum}:`, errorMsg)
       
-      if (consecutiveErrors >= 5) {
-        throw new Error(`Too many consecutive errors (${consecutiveErrors}). Last error: ${error instanceof Error ? error.message : 'Unknown error'}. Please check your RPC endpoint.`)
+      if (consecutiveErrors >= 10) {
+        throw new Error(`Too many consecutive errors (${consecutiveErrors}). Last error: ${errorMsg}. Please check your RPC endpoint or try a different one.`)
       }
       
-      if (totalErrors > totalBlocks / 2) {
-        throw new Error(`More than 50% of blocks failed to scan. Please verify your RPC endpoint is working correctly.`)
+      if (totalErrors > Math.max(10, totalBlocks / 2)) {
+        throw new Error(`More than 50% of blocks failed to scan (${totalErrors}/${totalBlocks}). Please verify your RPC endpoint is working correctly.`)
       }
+      
+      const backoffDelay = Math.min(1000, 100 * Math.pow(2, consecutiveErrors - 1))
+      await new Promise(resolve => setTimeout(resolve, backoffDelay))
       
       scannedCount++
       if (onProgress) {
