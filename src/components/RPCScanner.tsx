@@ -22,18 +22,19 @@ interface RPCScannerProps {
 }
 
 export function RPCScanner({ onAttackGenerated }: RPCScannerProps) {
-  const [rpcUrl, setRpcUrl] = useState('https://eth-mainnet.g.alchemy.com/v2/YOUR_API_KEY')
-  const [fromBlock, setFromBlock] = useState('20000000')
-  const [toBlock, setToBlock] = useState('20000010')
+  const [rpcUrl, setRpcUrl] = useState('https://eth.llamarpc.com')
+  const [fromBlock, setFromBlock] = useState('21000000')
+  const [toBlock, setToBlock] = useState('21000005')
   const [isScanning, setIsScanning] = useState(false)
   const [scanProgress, setScanProgress] = useState(0)
   const [scanResult, setScanResult] = useState<ScanResult | null>(null)
+  const [scanError, setScanError] = useState<string | null>(null)
   const [batchAnalysis, setBatchAnalysis] = useState<BatchAnalysisResult | null>(null)
   const [isAnalyzing, setIsAnalyzing] = useState(false)
   const [mlPredictions, setMlPredictions] = useState<MLPredictionResult | null>(null)
   const [isPredicting, setIsPredicting] = useState(false)
-  const [predictionFromBlock, setPredictionFromBlock] = useState('20000020')
-  const [predictionToBlock, setPredictionToBlock] = useState('20000100')
+  const [predictionFromBlock, setPredictionFromBlock] = useState('21000010')
+  const [predictionToBlock, setPredictionToBlock] = useState('21000050')
 
   const handleScan = async () => {
     const from = parseInt(fromBlock)
@@ -58,8 +59,11 @@ export function RPCScanner({ onAttackGenerated }: RPCScannerProps) {
     setScanProgress(0)
     setScanResult(null)
     setBatchAnalysis(null)
+    setScanError(null)
 
     try {
+      toast.info('Connecting to RPC endpoint...')
+      
       const result = await scanRPCForWeakSignatures(
         rpcUrl,
         from,
@@ -70,14 +74,19 @@ export function RPCScanner({ onAttackGenerated }: RPCScannerProps) {
       )
 
       setScanResult(result)
+      setScanError(null)
       
       if (result.weakSignatures.length > 0) {
-        toast.success(`Found ${result.weakSignatures.length} weak signature(s)!`)
+        toast.success(`Scan complete! Found ${result.weakSignatures.length} weak signature(s) in ${result.allSignatures.length} total signatures.`)
+      } else if (result.allSignatures.length > 0) {
+        toast.success(`Scan complete! Analyzed ${result.allSignatures.length} signatures - no weaknesses detected.`)
       } else {
-        toast.info('No weak signatures detected in this range')
+        toast.info(`Scan complete. No transactions with signatures found in blocks ${from}-${to}.`)
       }
     } catch (error) {
-      toast.error(`Scan failed: ${error instanceof Error ? error.message : 'Unknown error'}`)
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error'
+      setScanError(errorMessage)
+      toast.error(`Scan failed: ${errorMessage}`)
       console.error('Scan error:', error)
     } finally {
       setIsScanning(false)
@@ -252,9 +261,50 @@ export function RPCScanner({ onAttackGenerated }: RPCScannerProps) {
               id="rpc-url"
               value={rpcUrl}
               onChange={(e) => setRpcUrl(e.target.value)}
-              placeholder="https://eth-mainnet.g.alchemy.com/v2/YOUR_API_KEY"
+              placeholder="https://eth.llamarpc.com"
               className="font-mono text-xs"
             />
+            <div className="flex gap-2 mt-2 flex-wrap">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="text-xs"
+                onClick={() => setRpcUrl('https://eth.llamarpc.com')}
+              >
+                LlamaRPC
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="text-xs"
+                onClick={() => setRpcUrl('https://rpc.ankr.com/eth')}
+              >
+                Ankr
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="text-xs"
+                onClick={() => setRpcUrl('https://ethereum.publicnode.com')}
+              >
+                PublicNode
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="text-xs"
+                onClick={() => setRpcUrl('https://cloudflare-eth.com')}
+              >
+                Cloudflare
+              </Button>
+            </div>
+            <p className="text-xs text-muted-foreground mt-2">
+              Click a button to use public endpoints, or enter your own Infura/Alchemy URL
+            </p>
           </div>
 
           <div className="grid grid-cols-2 gap-4">
@@ -267,7 +317,7 @@ export function RPCScanner({ onAttackGenerated }: RPCScannerProps) {
                 type="number"
                 value={fromBlock}
                 onChange={(e) => setFromBlock(e.target.value)}
-                placeholder="20000000"
+                placeholder="21000000"
               />
             </div>
             <div>
@@ -279,7 +329,7 @@ export function RPCScanner({ onAttackGenerated }: RPCScannerProps) {
                 type="number"
                 value={toBlock}
                 onChange={(e) => setToBlock(e.target.value)}
-                placeholder="20000010"
+                placeholder="21000005"
               />
             </div>
           </div>
@@ -290,13 +340,25 @@ export function RPCScanner({ onAttackGenerated }: RPCScannerProps) {
             </AlertDescription>
           </Alert>
 
+          {scanError && (
+            <Alert className="border-destructive bg-destructive/10">
+              <XCircle size={16} weight="fill" className="text-destructive" />
+              <AlertDescription className="text-xs ml-2">
+                <strong>Scan Error:</strong> {scanError}
+              </AlertDescription>
+            </Alert>
+          )}
+
           {isScanning && (
             <div className="space-y-2">
               <div className="flex justify-between text-xs text-muted-foreground">
-                <span>Scanning blocks...</span>
+                <span>Scanning blocks {fromBlock} to {toBlock}...</span>
                 <span>{Math.round(scanProgress)}%</span>
               </div>
               <Progress value={scanProgress} className="h-2" />
+              <p className="text-xs text-muted-foreground text-center">
+                Fetching transactions and analyzing signatures...
+              </p>
             </div>
           )}
 
@@ -496,7 +558,7 @@ export function RPCScanner({ onAttackGenerated }: RPCScannerProps) {
                           type="number"
                           value={predictionFromBlock}
                           onChange={(e) => setPredictionFromBlock(e.target.value)}
-                          placeholder="20000020"
+                          placeholder="21000020"
                           className="text-xs"
                         />
                       </div>
@@ -509,7 +571,7 @@ export function RPCScanner({ onAttackGenerated }: RPCScannerProps) {
                           type="number"
                           value={predictionToBlock}
                           onChange={(e) => setPredictionToBlock(e.target.value)}
-                          placeholder="20000100"
+                          placeholder="21000100"
                           className="text-xs"
                         />
                       </div>

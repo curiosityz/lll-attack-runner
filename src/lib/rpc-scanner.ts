@@ -78,12 +78,22 @@ async function fetchJSON(url: string, body: any): Promise<any> {
     })
     
     if (!response.ok) {
-      throw new Error(`HTTP ${response.status}: ${response.statusText}`)
+      const errorText = await response.text()
+      throw new Error(`HTTP ${response.status}: ${response.statusText} - ${errorText}`)
     }
     
-    return await response.json()
+    const data = await response.json()
+    
+    if (data.error) {
+      throw new Error(`RPC Error ${data.error.code}: ${data.error.message}`)
+    }
+    
+    return data
   } catch (error) {
-    throw new Error(`RPC request failed: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    if (error instanceof Error) {
+      throw error
+    }
+    throw new Error(`RPC request failed: ${String(error)}`)
   }
 }
 
@@ -100,6 +110,12 @@ export async function scanRPCForWeakSignatures(
   
   let scannedCount = 0
   const totalBlocks = toBlock - fromBlock + 1
+  let consecutiveErrors = 0
+  let totalErrors = 0
+  
+  if (!rpcUrl || rpcUrl.includes('YOUR_API_KEY')) {
+    throw new Error('Invalid RPC URL. Please provide a valid Ethereum RPC endpoint.')
+  }
   
   for (let blockNum = fromBlock; blockNum <= toBlock; blockNum++) {
     try {
@@ -107,31 +123,44 @@ export async function scanRPCForWeakSignatures(
         jsonrpc: '2.0',
         method: 'eth_getBlockByNumber',
         params: [bigIntToHex(BigInt(blockNum)), true],
-        id: 1
+        id: blockNum
       })
       
-      if (blockData.error) {
-        console.error(`Error fetching block ${blockNum}:`, blockData.error)
+      const block = blockData.result
+      if (!block) {
+        console.warn(`Block ${blockNum} returned null - may not exist yet`)
+        scannedCount++
+        if (onProgress) {
+          onProgress(scannedCount, totalBlocks)
+        }
         continue
       }
       
-      const block = blockData.result
-      if (!block || !block.transactions) {
+      if (!block.transactions || !Array.isArray(block.transactions)) {
+        console.warn(`Block ${blockNum} has no transactions array`)
+        scannedCount++
+        if (onProgress) {
+          onProgress(scannedCount, totalBlocks)
+        }
         continue
       }
       
       for (const tx of block.transactions) {
+        if (typeof tx === 'string') {
+          continue
+        }
+        
         if (!tx.r || !tx.s || !tx.v) continue
         
         const signature: RPCSignature = {
           r: tx.r,
           s: tx.s,
-          v: parseInt(tx.v, 16),
+          v: typeof tx.v === 'string' ? parseInt(tx.v, 16) : tx.v,
           hash: tx.hash,
-          address: tx.from,
+          address: tx.from || '',
           blockNumber: blockNum,
           transactionHash: tx.hash,
-          timestamp: block.timestamp ? parseInt(block.timestamp, 16) : undefined
+          timestamp: block.timestamp ? (typeof block.timestamp === 'string' ? parseInt(block.timestamp, 16) : block.timestamp) : undefined
         }
         
         allSignatures.push(signature)
@@ -164,13 +193,29 @@ export async function scanRPCForWeakSignatures(
         signatureMap.get(rHex)!.push(signature)
       }
       
+      consecutiveErrors = 0
       scannedCount++
       if (onProgress) {
         onProgress(scannedCount, totalBlocks)
       }
       
     } catch (error) {
+      consecutiveErrors++
+      totalErrors++
       console.error(`Failed to process block ${blockNum}:`, error)
+      
+      if (consecutiveErrors >= 5) {
+        throw new Error(`Too many consecutive errors (${consecutiveErrors}). Last error: ${error instanceof Error ? error.message : 'Unknown error'}. Please check your RPC endpoint.`)
+      }
+      
+      if (totalErrors > totalBlocks / 2) {
+        throw new Error(`More than 50% of blocks failed to scan. Please verify your RPC endpoint is working correctly.`)
+      }
+      
+      scannedCount++
+      if (onProgress) {
+        onProgress(scannedCount, totalBlocks)
+      }
     }
   }
   
