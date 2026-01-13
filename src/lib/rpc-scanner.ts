@@ -68,15 +68,23 @@ const SECP256K1_HALF_N = SECP256K1_N / 2n
 
 async function fetchJSON(url: string, body: any): Promise<any> {
   try {
+    const useCorsProxy = !url.includes('localhost') && !url.includes('127.0.0.1')
+    
+    let targetUrl = url
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
+    }
+    
+    if (useCorsProxy) {
+      targetUrl = `https://corsproxy.io/?${encodeURIComponent(url)}`
+      console.log('[CORS Proxy] Using proxy for:', url)
     }
     
     if (url.includes('infura.io') || url.includes('alchemy.com') || url.includes('quicknode.pro')) {
       headers['Accept'] = 'application/json'
     }
     
-    const response = await fetch(url, {
+    const response = await fetch(targetUrl, {
       method: 'POST',
       headers,
       body: JSON.stringify(body),

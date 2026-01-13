@@ -427,6 +427,12 @@ export function RPCScanner({ onAttackGenerated }: RPCScannerProps) {
             </AlertDescription>
           </Alert>
 
+          <Alert className="border-accent/20 bg-accent/5">
+            <AlertDescription className="text-xs">
+              <strong>🔒 CORS Proxy:</strong> All RPC requests are automatically routed through a CORS proxy (corsproxy.io) to bypass browser restrictions. This allows you to connect to any Ethereum RPC endpoint directly from your browser.
+            </AlertDescription>
+          </Alert>
+
           {scanError && (
             <Alert className="border-destructive bg-destructive/10">
               <XCircle size={16} weight="fill" className="text-destructive" />

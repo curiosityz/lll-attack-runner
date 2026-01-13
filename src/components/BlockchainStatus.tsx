@@ -36,8 +36,11 @@ export function BlockchainStatus({ rpcUrl }: BlockchainStatusProps) {
           headers['Accept'] = 'application/json'
         }
 
+        const useCorsProxy = !rpcUrl.includes('localhost') && !rpcUrl.includes('127.0.0.1')
+        const targetUrl = useCorsProxy ? `https://corsproxy.io/?${encodeURIComponent(rpcUrl)}` : rpcUrl
+
         const [blockResponse, chainResponse] = await Promise.all([
-          fetch(rpcUrl, {
+          fetch(targetUrl, {
             method: 'POST',
             headers,
             body: JSON.stringify({
@@ -48,7 +51,7 @@ export function BlockchainStatus({ rpcUrl }: BlockchainStatusProps) {
             }),
             signal: AbortSignal.timeout(10000)
           }),
-          fetch(rpcUrl, {
+          fetch(targetUrl, {
             method: 'POST',
             headers,
             body: JSON.stringify({

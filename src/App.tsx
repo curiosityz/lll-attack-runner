@@ -613,6 +613,7 @@ function App() {
                 <div>
                   <h3 className="font-semibold mb-2">RPC Endpoint Tips</h3>
                   <ul className="list-disc list-inside space-y-1 text-muted-foreground">
+                    <li><strong>CORS Proxy:</strong> All RPC requests automatically use a CORS proxy to bypass browser restrictions</li>
                     <li><strong>Public RPCs:</strong> https://eth.llamarpc.com, https://rpc.ankr.com/eth</li>
                     <li><strong>Private RPCs:</strong> Add your API key in the URL query string</li>
                     <li><strong>Rate Limits:</strong> Free endpoints may throttle - reduce batch size if errors occur</li>
