@@ -7,49 +7,28 @@ export interface CORSProxyConfig {
 
 export const CORS_PROXIES: CORSProxyConfig[] = [
   {
-    name: 'cors-proxy.htmldriven.com',
-    url: (target) => `https://cors-proxy.htmldriven.com/?url=${encodeURIComponent(target)}`,
+    name: 'thingproxy.freeboard.io',
+    url: (target) => `https://thingproxy.freeboard.io/fetch/${target}`,
     priority: 1,
-    description: 'Reliable CORS proxy for API requests'
-  },
-  {
-    name: 'api.codetabs.com',
-    url: (target) => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(target)}`,
-    priority: 2,
-    description: 'Free proxy API with good uptime'
-  },
-  {
-    name: 'proxy.cors.sh',
-    url: (target) => {
-      const url = new URL(target)
-      return `https://proxy.cors.sh/${target}`
-    },
-    priority: 3,
-    description: 'Modern CORS proxy with simple interface'
-  },
-  {
-    name: 'corsproxy.io',
-    url: (target) => `https://corsproxy.io/?${encodeURIComponent(target)}`,
-    priority: 4,
-    description: 'Fast proxy with good reliability'
+    description: 'Reliable CORS proxy with good uptime'
   },
   {
     name: 'api.allorigins.win',
     url: (target) => `https://api.allorigins.win/raw?url=${encodeURIComponent(target)}`,
-    priority: 5,
-    description: 'Alternative proxy service'
+    priority: 2,
+    description: 'AllOrigins proxy service'
   },
   {
-    name: 'yacdn.org',
-    url: (target) => `https://yacdn.org/proxy/${target}`,
-    priority: 6,
-    description: 'CDN-based proxy service'
+    name: 'api.codetabs.com',
+    url: (target) => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(target)}`,
+    priority: 3,
+    description: 'CodeTabs proxy with decent reliability'
   },
   {
-    name: 'cors-anywhere.herokuapp',
-    url: (target) => `https://cors-anywhere.herokuapp.com/${target}`,
-    priority: 7,
-    description: 'Open-source CORS proxy (may require demo access)'
+    name: 'cors-proxy.htmldriven.com',
+    url: (target) => `https://cors-proxy.htmldriven.com/?url=${encodeURIComponent(target)}`,
+    priority: 4,
+    description: 'HTML Driven CORS proxy'
   }
 ]
 
@@ -175,7 +154,7 @@ export const corsProxyManager = new CORSProxyManager()
 export async function fetchWithCORSProxy(
   targetUrl: string,
   options: RequestInit = {},
-  maxRetries: number = 3
+  maxRetries: number = 5
 ): Promise<Response> {
   const shouldUseCorsProxy = !targetUrl.includes('localhost') && 
                              !targetUrl.includes('127.0.0.1') &&
@@ -186,48 +165,55 @@ export async function fetchWithCORSProxy(
   }
 
   let lastError: Error | null = null
-  const availableProxies = CORS_PROXIES.slice()
   let triedDirect = false
 
-  for (let attempt = 0; attempt < Math.min(maxRetries, availableProxies.length + 1); attempt++) {
-    if (attempt === 0) {
-      console.log(`[CORS Proxy] Attempting direct connection first...`)
-      try {
-        const controller = new AbortController()
-        const timeoutId = setTimeout(() => controller.abort(), 15000)
+  if (!triedDirect) {
+    console.log(`[CORS Proxy] Attempting direct connection first...`)
+    try {
+      const controller = new AbortController()
+      const timeoutId = setTimeout(() => controller.abort(), 8000)
 
-        const response = await fetch(targetUrl, {
-          ...options,
-          signal: controller.signal,
-        })
+      const response = await fetch(targetUrl, {
+        ...options,
+        signal: controller.signal,
+        mode: 'cors',
+        cache: 'no-cache'
+      })
 
-        clearTimeout(timeoutId)
+      clearTimeout(timeoutId)
 
-        if (response.ok) {
-          console.log(`[CORS Proxy] ✓ Direct connection succeeded!`)
-          return response
-        }
-      } catch (error) {
-        console.log(`[CORS Proxy] Direct connection failed, using proxies...`)
-        triedDirect = true
+      if (response.ok) {
+        console.log(`[CORS Proxy] ✓ Direct connection succeeded!`)
+        return response
       }
+    } catch (error) {
+      console.log(`[CORS Proxy] Direct connection failed, using proxies...`)
+      lastError = error instanceof Error ? error : new Error(String(error))
     }
+    triedDirect = true
+  }
 
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
     const proxy = corsProxyManager.getCurrentProxy()
     const proxyUrl = proxy.url(targetUrl)
     const startTime = performance.now()
 
     console.log(`[CORS Proxy] Attempt ${attempt + 1}/${maxRetries} using ${proxy.name}`)
-    console.log(`[CORS Proxy] Target: ${targetUrl}`)
-    console.log(`[CORS Proxy] Proxied: ${proxyUrl}`)
 
     try {
       const controller = new AbortController()
-      const timeoutId = setTimeout(() => controller.abort(), 30000)
+      const timeoutId = setTimeout(() => controller.abort(), 20000)
 
       const response = await fetch(proxyUrl, {
-        ...options,
+        method: options.method || 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json'
+        },
+        body: options.body,
         signal: controller.signal,
+        mode: 'cors',
+        cache: 'no-cache'
       })
 
       clearTimeout(timeoutId)
@@ -238,6 +224,7 @@ export async function fetchWithCORSProxy(
       }
 
       corsProxyManager.recordSuccess(proxy.name, responseTime)
+      console.log(`[CORS Proxy] ✓ Success with ${proxy.name} (${responseTime.toFixed(0)}ms)`)
       return response
 
     } catch (error) {
@@ -249,24 +236,25 @@ export async function fetchWithCORSProxy(
         lastError.message.slice(0, 100)
       )
 
-      if (attempt < Math.min(maxRetries, availableProxies.length) - 1) {
-        const backoffDelay = Math.min(1000, 200 * Math.pow(2, attempt))
-        console.log(`[CORS Proxy] Waiting ${backoffDelay}ms before next attempt...`)
+      if (attempt < maxRetries - 1) {
+        const backoffDelay = Math.min(2000, 300 * Math.pow(1.5, attempt))
+        console.log(`[CORS Proxy] Waiting ${backoffDelay.toFixed(0)}ms before retry...`)
         await new Promise(resolve => setTimeout(resolve, backoffDelay))
       }
     }
   }
 
   throw new Error(
-    `All connection attempts failed after ${maxRetries} tries. Last error: ${lastError?.message || 'Unknown'}. ` +
-    `Please check: 1) RPC endpoint is valid and accessible, 2) API key is correct (for private RPCs), 3) Network connection is stable.`
+    `All ${maxRetries} proxy attempts failed. Last error: ${lastError?.message || 'Unknown'}. ` +
+    `Try: 1) Use a different RPC endpoint, 2) Check your API key, 3) Verify network connection. ` +
+    `Recommended: https://rpc.ankr.com/eth or https://ethereum.publicnode.com`
   )
 }
 
 export async function fetchJSONWithCORSProxy(
   targetUrl: string,
   body: any,
-  maxRetries: number = 3
+  maxRetries: number = 5
 ): Promise<any> {
   const response = await fetchWithCORSProxy(
     targetUrl,
@@ -274,20 +262,31 @@ export async function fetchJSONWithCORSProxy(
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        'Accept': 'application/json'
       },
       body: JSON.stringify(body),
     },
     maxRetries
   )
 
-  const contentType = response.headers.get('content-type')
-  const responseText = await response.text()
+  const contentType = response.headers.get('content-type') || ''
+  let responseText = ''
   
-  if (responseText.includes('<!DOCTYPE') || responseText.includes('<html')) {
+  try {
+    responseText = await response.text()
+  } catch (e) {
+    throw new Error('Failed to read response from RPC endpoint')
+  }
+  
+  if (!responseText || responseText.trim() === '') {
+    throw new Error('RPC endpoint returned empty response')
+  }
+  
+  if (responseText.includes('<!DOCTYPE') || responseText.includes('<html') || responseText.includes('<HTML')) {
     throw new Error(
-      `RPC endpoint returned HTML instead of JSON. This usually means: ` +
-      `1) The RPC URL is incorrect, 2) The endpoint requires authentication, or ` +
-      `3) The proxy is blocking the request. Response preview: ${responseText.slice(0, 100)}...`
+      `RPC endpoint returned HTML instead of JSON (likely blocked or misconfigured). ` +
+      `Please verify: 1) URL is correct, 2) Endpoint requires auth (add API key), ` +
+      `3) Try a different RPC like https://rpc.ankr.com/eth`
     )
   }
 
@@ -296,30 +295,50 @@ export async function fetchJSONWithCORSProxy(
     data = JSON.parse(responseText)
   } catch (parseError) {
     throw new Error(
-      `Failed to parse RPC response as JSON. ` +
-      `Response: ${responseText.slice(0, 200)}...`
+      `Invalid JSON response from RPC. ` +
+      `Response preview: ${responseText.slice(0, 150)}...`
     )
   }
 
   if (data.error) {
     const errorCode = data.error.code || 'UNKNOWN'
-    const errorMessage = data.error.message || 'Unknown error'
+    const errorMessage = data.error.message || JSON.stringify(data.error)
     
     if (errorCode === -32602) {
       throw new Error(
-        `RPC Error -32602 (Invalid params): ${errorMessage}. ` +
-        `This is usually a block number format issue. The scanner will automatically retry.`
+        `RPC parameter error: ${errorMessage}. ` +
+        `This usually means invalid block number format or missing params.`
       )
     }
     
     if (errorCode === -32000) {
       throw new Error(
-        `RPC Error -32000 (Server error): ${errorMessage}. ` +
-        `The RPC node may be rate limiting or having issues.`
+        `RPC server error: ${errorMessage}. ` +
+        `The node may be rate limiting, out of sync, or rejecting the query.`
+      )
+    }
+
+    if (errorCode === -32601) {
+      throw new Error(
+        `Method not found: ${errorMessage}. ` +
+        `This RPC endpoint may not support the requested method.`
+      )
+    }
+
+    if (errorCode === -32700) {
+      throw new Error(
+        `Parse error: ${errorMessage}. ` +
+        `The RPC request JSON was malformed.`
       )
     }
     
     throw new Error(`RPC Error ${errorCode}: ${errorMessage}`)
+  }
+
+  if (!data.result && data.result !== null && data.result !== 0) {
+    throw new Error(
+      `RPC response missing 'result' field. Response: ${JSON.stringify(data).slice(0, 150)}...`
+    )
   }
 
   return data

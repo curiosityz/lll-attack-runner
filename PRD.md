@@ -1,13 +1,13 @@
 # Planning Guide
 
-An interactive web application for running advanced lattice basis reduction attacks (LLL, BKZ) on cryptographic problems, with RPC blockchain signature scanning, automated attack generation, comprehensive automation engine, machine learning predictions, visual feedback and educational context.
+A sophisticated web application for running advanced lattice basis reduction attacks (LLL, BKZ) on cryptographic problems, featuring RPC blockchain signature scanning, automated attack generation, comprehensive automation engine, machine learning predictions, stunning visual feedback, and educational context.
 
 **Experience Qualities**:
 1. **Automated** - The application orchestrates complete attack workflows from discovery to exploitation with minimal user intervention
-2. **Precise** - The interface should convey technical accuracy and mathematical rigor appropriate for cryptographic analysis
-3. **Powerful** - The tool should feel capable and professional, suitable for both security research and education
+2. **Professional** - The interface conveys technical accuracy, mathematical rigor, and modern design aesthetics appropriate for security research
+3. **Powerful** - The tool feels capable and responsive, suitable for both advanced security research and cryptographic education
 
-**Complexity Level**: Complex Application (advanced functionality with multiple views and automation)
+**Complexity Level**: Complex Application (advanced functionality with multiple views and full automation)
 - This is a sophisticated security research tool with automated workflow orchestration, RPC blockchain scanning, ML-based prediction, batch pattern analysis, parallel attack execution, pattern learning, and comprehensive visualization across multiple interconnected features.
 
 ## Essential Features
@@ -119,85 +119,88 @@ An interactive web application for running advanced lattice basis reduction atta
 
 ## Design Direction
 
-The design should evoke precision, mathematical clarity, and technical sophistication. It should feel like a professional research tool while remaining approachable for learners. The interface should balance dense information display with breathing room, using monospace fonts for mathematical data and clear visual hierarchy to guide users through the attack process.
+The design evokes precision, mathematical clarity, and cutting-edge sophistication. It feels like a professional security research tool with modern aesthetics - balancing dense technical information with visual breathing room. The interface uses a gradient-rich, layered design with subtle patterns, backdrop blur effects, and refined color accents that create depth and visual interest without overwhelming the complex data displays.
 
 ## Color Selection
 
-A technical, cybersecurity-inspired palette with high contrast for readability of complex mathematical notation.
+A modern, sophisticated cybersecurity-inspired palette with vibrant accents and excellent contrast for readability of complex mathematical notation.
 
-- **Primary Color**: Deep Electric Blue (oklch(0.45 0.20 250)) - Represents analytical thinking and technical precision
-- **Secondary Colors**: Dark Slate (oklch(0.25 0.02 260)) for panels and containers, providing a sophisticated backdrop
-- **Accent Color**: Neon Cyan (oklch(0.75 0.15 200)) - High-visibility highlights for active elements and successful attacks
+- **Primary Color**: Vibrant Purple (oklch(0.60 0.25 280)) - Represents computational power and technical sophistication
+- **Secondary Colors**: Deep Slate (oklch(0.24 0.03 265)) for elevated surfaces with subtle transparency, creating layered depth
+- **Accent Color**: Electric Cyan (oklch(0.72 0.18 190)) - High-energy highlights for interactive elements, results, and success states
+- **Success Color**: Matrix Green (oklch(0.68 0.20 150)) - Clear positive feedback for successful operations
+- **Warning Color**: Amber Alert (oklch(0.75 0.20 60)) - Attention-grabbing for important notices
 - **Foreground/Background Pairings**: 
-  - Background (Dark Slate #1a1d2e oklch(0.15 0.02 260)): Light Gray text (oklch(0.95 0 0)) - Ratio 12.8:1 ✓
-  - Primary (Electric Blue oklch(0.45 0.20 250)): White text (oklch(1 0 0)) - Ratio 5.2:1 ✓
-  - Accent (Neon Cyan oklch(0.75 0.15 200)): Dark text (oklch(0.15 0.02 260)) - Ratio 11.5:1 ✓
-  - Success state: Matrix Green (oklch(0.65 0.18 145)) with dark text - Ratio 6.8:1 ✓
-  - Error state: Alert Red (oklch(0.60 0.22 25)) with white text - Ratio 4.9:1 ✓
+  - Background (Deep Navy oklch(0.14 0.03 260 / 0.95) with gradient and pattern overlay): Light text (oklch(0.97 0.01 260)) - Ratio 13.2:1 ✓
+  - Primary (Vibrant Purple oklch(0.60 0.25 280)): White text (oklch(1 0 0)) - Ratio 5.8:1 ✓
+  - Accent (Electric Cyan oklch(0.72 0.18 190)): Dark text (oklch(0.14 0.03 260)) - Ratio 10.8:1 ✓
+  - Success (Matrix Green oklch(0.68 0.20 150)): Dark text (oklch(0.14 0.03 260)) - Ratio 9.2:1 ✓
+  - Warning (Amber oklch(0.75 0.20 60)): Dark text (oklch(0.14 0.03 260)) - Ratio 11.5:1 ✓
+  - Card surfaces use subtle gradient overlays (from-card/90 to-card/70) with backdrop-blur-sm for depth
 
 ## Font Selection
 
-Typography should emphasize technical precision with excellent readability for mathematical notation and code-like content.
+Typography emphasizes technical precision with excellent readability for mathematical notation and code-like content, using the distinctive JetBrains Mono throughout.
 
 - **Typographic Hierarchy**:
-  - H1 (Page Title): JetBrains Mono Bold/32px/tight letter-spacing (-0.02em)
-  - H2 (Section Headers): JetBrains Mono SemiBold/24px/normal letter-spacing
-  - H3 (Subsections): JetBrains Mono Medium/18px/normal letter-spacing
+  - H1 (Page Title): JetBrains Mono Bold/36px/tight letter-spacing with gradient text effect
+  - H2 (Section Headers): JetBrains Mono Bold/20px with accent color bar indicators
+  - H3 (Subsections): JetBrains Mono SemiBold/16px/normal letter-spacing
   - Body Text: JetBrains Mono Regular/14px/relaxed line-height (1.6)
   - Matrix/Vector Display: JetBrains Mono Regular/13px/monospace letter-spacing (0.02em)
-  - Button Labels: JetBrains Mono Medium/14px/normal letter-spacing
-  - Captions/Labels: JetBrains Mono Regular/12px/normal letter-spacing
+  - Button Labels: JetBrains Mono Medium/15px/normal letter-spacing
+  - Captions/Labels: JetBrains Mono Regular/12px with uppercase tracking for small labels
 
 ## Animations
 
-Animations should emphasize computational progression and mathematical transformations, reinforcing the algorithmic nature of the tool.
+Animations emphasize computational progression, state transitions, and mathematical transformations with smooth, purposeful motion.
 
-- Button interactions use quick, crisp state changes (100ms) to feel responsive
-- Attack execution shows a subtle pulsing indicator during computation
-- Results slide in with a gentle ease-out transition (300ms) after computation
-- Matrix transformations can show a brief highlight flash on changed vectors
-- Success states get a satisfying scale-up confirmation (200ms)
-- History items fade in sequentially with stagger effect when viewing list
-- Tab transitions use smooth crossfade to maintain context
-- D3 visualizations use smooth transitions (400-600ms) when stepping through algorithm iterations
-- Vector movements in 2D plot follow natural easing curves to show transformations
-- Heatmap cells transition colors smoothly when matrix values change
-- Progress charts draw paths with animated line growth from left to right
+- Button interactions use crisp state changes (150ms) with subtle scale transforms for tactile feedback
+- Run Attack button features gradient animation and shadow effects on hover
+- Attack execution shows smooth pulsing spinner with modern styling
+- Results cards slide in with gentle spring animation (400ms ease-out) after computation
+- Matrix transformations highlight changed vectors with color transitions
+- Success states show satisfying scale and glow effects (250ms)
+- History items fade in with stagger effect (50ms between items) for smooth reveals
+- Tab transitions use crossfade with smooth state preservation
+- Cards have smooth border color and shadow transitions on hover (200ms)
+- Empty states feature gentle floating animations on icons
+- D3 visualizations use fluid transitions (500ms) for vector transformations
+- Progress indicators grow smoothly with easing curves
 
 ## Component Selection
 
 - **Components**: 
-  - Tabs (attack configuration, visualization, history, help) for main navigation
-  - Card for containing attack setup panel, results display, visualization panels, and history items
-  - Button with variants (default for run, outline for templates, destructive for clear)
-  - Textarea for matrix input with monospace styling
-  - Input for numeric parameters (delta value, dimension)
-  - Select for attack type dropdown
-  - Badge for attack status indicators (success, failed, running) and action types (swap, reduce)
-  - Separator for dividing sections within panels
-  - ScrollArea for history list and large result displays
-  - Dialog for template selection with descriptions
-  - Alert for warnings about computation time or invalid input
-  - Checkbox for enabling visualization capture
-  - Slider for scrubbing through visualization timeline
-  - D3 SVG components for vector plots, matrix heatmaps, and progress charts
+  - Tabs with modern styling (rounded, backdrop-blur, active state with gradient backgrounds)
+  - Card with glassmorphism effects (backdrop-blur-sm, gradient borders, subtle shadows)
+  - Button with vibrant gradient backgrounds for primary actions, outline variants with colored borders for secondary
+  - Textarea for matrix input with monospace styling and focus glow
+  - Input for numeric parameters with enhanced focus states
+  - Select for dropdowns with consistent styling
+  - Badge with semantic color schemes (success, warning, destructive) using transparent backgrounds
+  - Separator for dividing sections with subtle coloring
+  - ScrollArea for history and large displays with custom scrollbar styling
+  - Dialog for templates with modern backdrop
+  - Alert with appropriate semantic coloring and improved typography
+  - Progress bars with gradient fills and smooth animations
   
 - **Customizations**:
-  - Custom MatrixInput component combining Textarea with validation and formatting helpers
-  - Custom VectorDisplay component for rendering mathematical vectors with highlighting
-  - Custom AttackCard component wrapping Card with specific layout for history items
-  - Custom VectorVisualization component with D3 for interactive 2D vector plots and norm bar charts
-  - Custom MatrixHeatmap component with D3 for color-coded matrix state visualization
-  - Custom OrthogonalityChart component with D3 for dual-axis progress tracking
+  - Enhanced Card components with gradient overlays and refined borders
+  - VectorDisplay with improved visual hierarchy and metric displays
+  - AttackCard with structured metric panels and status indicators
+  - Empty states with large icons, clear messaging, and call-to-action buttons
+  - Header with gradient text effects and icon badging
+  - Help section with colored accent bars for visual categorization
+  - Metric displays using rounded containers with subtle backgrounds
   
 - **States**:
-  - Buttons: Default (electric blue), hover (brighter blue with subtle glow), active (pressed with scale), disabled (muted with reduced opacity), loading (with spinner)
-  - Inputs: Default (dark with cyan border), focus (brighter cyan border with glow), error (red border), success (green border)
-  - Results: Computing (pulsing skeleton), success (green accent), failure (amber accent)
+  - Buttons: Default (gradient primary to accent), hover (intensified gradient with shadow), active (scale down), disabled (muted), loading (spinner with gradient border)
+  - Inputs: Default (border with transparency), focus (accent border with glow), error (destructive border), success (success border)
+  - Cards: Default (subtle border), hover (enhanced border color and shadow for interactive cards)
+  - Results: Computing (pulsing animation), success (green accent with glow), failure/warning (amber accent)
   
-- **Icon Selection**:
-  - Play icon for "Run Attack" button and playback controls
-  - Pause icon for stopping animation playback
+- **Icon Selection** (using Phosphor Icons with duotone weight):
+  - Play icon for "Run Attack" and playback controls
   - SkipForward/SkipBack for stepping through visualization frames
   - ClockClockwise for re-run from history
   - X for clear/delete actions

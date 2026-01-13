@@ -16,27 +16,33 @@ export function VectorDisplay({ matrix, title, highlightFirst = false, success }
   }
 
   return (
-    <div className="space-y-2">
+    <div className="space-y-3">
       <div className="flex items-center justify-between">
-        <h3 className="text-sm font-semibold">{title}</h3>
+        <h3 className="text-base font-bold flex items-center gap-2">
+          <span className="w-1 h-5 bg-accent rounded-full"></span>
+          {title}
+        </h3>
         {success !== undefined && (
-          <Badge variant={success ? 'default' : 'secondary'} className={success ? 'bg-success text-success-foreground' : ''}>
-            {success ? 'Success' : 'Failed'}
+          <Badge 
+            variant={success ? 'default' : 'secondary'} 
+            className={success ? 'bg-success/20 text-success border-success/40' : 'bg-muted/50 text-muted-foreground border-muted'}
+          >
+            {success ? '✓ Success' : '⚠ Failed'}
           </Badge>
         )}
       </div>
-      <Card className="p-4 bg-secondary/50 border-border">
-        <div className="font-mono text-xs space-y-1 overflow-x-auto">
+      <Card className="p-5 bg-card/70 backdrop-blur-sm border-border/60 shadow-lg">
+        <div className="font-mono text-xs space-y-1.5 overflow-x-auto">
           {matrix.map((row, i) => (
             <div
               key={i}
-              className={`flex gap-2 transition-colors ${
+              className={`flex gap-3 transition-all duration-200 ${
                 highlightFirst && i === 0
-                  ? 'text-accent font-semibold bg-accent/10 -mx-2 px-2 py-1 rounded'
-                  : 'text-foreground'
+                  ? 'text-accent font-bold bg-accent/15 -mx-3 px-3 py-2 rounded-lg border border-accent/30'
+                  : 'text-foreground/90'
               }`}
             >
-              <span className="text-muted-foreground w-6">[{i}]</span>
+              <span className="text-muted-foreground/70 w-7 font-semibold">[{i}]</span>
               {row.map((val, j) => (
                 <span key={j} className="inline-block w-20 text-right">
                   {formatNumber(val)}
@@ -46,7 +52,7 @@ export function VectorDisplay({ matrix, title, highlightFirst = false, success }
           ))}
         </div>
         {matrix.length === 0 && (
-          <div className="text-muted-foreground text-xs text-center py-4">
+          <div className="text-muted-foreground text-xs text-center py-8">
             No data to display
           </div>
         )}

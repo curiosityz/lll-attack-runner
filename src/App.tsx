@@ -193,47 +193,53 @@ function App() {
   }
 
   return (
-    <div className="min-h-screen bg-background p-4 md:p-6">
-      <div className="max-w-7xl mx-auto">
-        <header className="mb-8">
-          <div className="flex items-center gap-3 mb-2">
-            <Calculator size={32} className="text-accent" weight="bold" />
-            <h1 className="text-3xl font-bold tracking-tight">Advanced LLL/BKZ Attack Runner</h1>
+    <div className="min-h-screen bg-background/50 p-4 md:p-6 lg:p-8">
+      <div className="max-w-[1600px] mx-auto">
+        <header className="mb-8 md:mb-10">
+          <div className="flex items-center gap-4 mb-3">
+            <div className="p-3 bg-gradient-to-br from-primary/20 to-accent/20 rounded-2xl border border-primary/30 backdrop-blur-sm">
+              <Calculator size={36} className="text-primary" weight="duotone" />
+            </div>
+            <div>
+              <h1 className="text-3xl md:text-4xl font-bold tracking-tight bg-gradient-to-r from-foreground via-primary to-accent bg-clip-text text-transparent">
+                Lattice Attack Suite
+              </h1>
+              <p className="text-sm text-muted-foreground mt-1">
+                Advanced LLL/BKZ · RPC Scanning · ML Predictions · Full Automation
+              </p>
+            </div>
           </div>
-          <p className="text-sm text-muted-foreground">
-            Lattice basis reduction with RPC signature scanning, ML predictions, full workflow automation, and <strong>multi-range testing</strong>
-          </p>
         </header>
 
         <Tabs defaultValue="range-tester" className="space-y-6">
-          <TabsList className="grid w-full grid-cols-7 max-w-5xl">
-            <TabsTrigger value="range-tester">
-              <ListBullets size={16} className="mr-2" />
-              Range Tester
+          <TabsList className="grid w-full grid-cols-7 max-w-5xl h-auto p-1.5 bg-card/50 backdrop-blur-sm border border-border/60">
+            <TabsTrigger value="range-tester" className="flex items-center justify-center gap-2 data-[state=active]:bg-primary/15 data-[state=active]:text-primary py-2.5 px-3">
+              <ListBullets size={18} weight="duotone" />
+              <span className="hidden sm:inline">Range Test</span>
             </TabsTrigger>
-            <TabsTrigger value="attack">
-              <Play size={16} className="mr-2" />
-              Attack
+            <TabsTrigger value="attack" className="flex items-center justify-center gap-2 data-[state=active]:bg-primary/15 data-[state=active]:text-primary py-2.5 px-3">
+              <Play size={18} weight="duotone" />
+              <span className="hidden sm:inline">Attack</span>
             </TabsTrigger>
-            <TabsTrigger value="scanner">
-              <CloudArrowDown size={16} className="mr-2" />
-              RPC Scanner
+            <TabsTrigger value="scanner" className="flex items-center justify-center gap-2 data-[state=active]:bg-primary/15 data-[state=active]:text-primary py-2.5 px-3">
+              <CloudArrowDown size={18} weight="duotone" />
+              <span className="hidden sm:inline">Scanner</span>
             </TabsTrigger>
-            <TabsTrigger value="automation">
-              <Lightning size={16} className="mr-2" />
-              Automation
+            <TabsTrigger value="automation" className="flex items-center justify-center gap-2 data-[state=active]:bg-primary/15 data-[state=active]:text-primary py-2.5 px-3">
+              <Lightning size={18} weight="duotone" />
+              <span className="hidden sm:inline">Auto</span>
             </TabsTrigger>
-            <TabsTrigger value="visualization" disabled={visualizationSteps.length === 0}>
-              <ChartLine size={16} className="mr-2" />
-              Visualization
+            <TabsTrigger value="visualization" disabled={visualizationSteps.length === 0} className="flex items-center justify-center gap-2 data-[state=active]:bg-primary/15 data-[state=active]:text-primary py-2.5 px-3">
+              <ChartLine size={18} weight="duotone" />
+              <span className="hidden sm:inline">Visual</span>
             </TabsTrigger>
-            <TabsTrigger value="history">
-              <ListBullets size={16} className="mr-2" />
-              History
+            <TabsTrigger value="history" className="flex items-center justify-center gap-2 data-[state=active]:bg-primary/15 data-[state=active]:text-primary py-2.5 px-3">
+              <ListBullets size={18} weight="duotone" />
+              <span className="hidden sm:inline">History</span>
             </TabsTrigger>
-            <TabsTrigger value="help">
-              <Lightbulb size={16} className="mr-2" />
-              Help
+            <TabsTrigger value="help" className="flex items-center justify-center gap-2 data-[state=active]:bg-primary/15 data-[state=active]:text-primary py-2.5 px-3">
+              <Lightbulb size={18} weight="duotone" />
+              <span className="hidden sm:inline">Help</span>
             </TabsTrigger>
           </TabsList>
 
@@ -248,15 +254,19 @@ function App() {
           <TabsContent value="attack" className="space-y-6">
             <div className="grid lg:grid-cols-2 gap-6">
               <div className="space-y-6">
-                <Card className="p-6 bg-card border-border">
-                  <div className="flex items-center justify-between mb-4">
-                    <h2 className="text-lg font-semibold">Attack Configuration</h2>
+                <Card className="p-6 bg-card/80 backdrop-blur-sm border-border/60 shadow-lg">
+                  <div className="flex items-center justify-between mb-6">
+                    <h2 className="text-xl font-bold flex items-center gap-2">
+                      <span className="w-1 h-6 bg-primary rounded-full"></span>
+                      Attack Configuration
+                    </h2>
                     <Button
                       variant="outline"
                       size="sm"
                       onClick={() => setTemplateDialogOpen(true)}
+                      className="border-primary/30 hover:bg-primary/10 hover:border-primary/50"
                     >
-                      <Lightbulb size={16} />
+                      <Lightbulb size={16} weight="duotone" />
                       Templates
                     </Button>
                   </div>
@@ -379,17 +389,17 @@ function App() {
                     <Button
                       onClick={handleRunAttack}
                       disabled={isRunning}
-                      className="w-full"
+                      className="w-full bg-gradient-to-r from-primary to-accent hover:from-primary/90 hover:to-accent/90 shadow-lg shadow-primary/20"
                       size="lg"
                     >
                       {isRunning ? (
                         <>
-                          <div className="animate-spin mr-2 h-4 w-4 border-2 border-primary-foreground border-t-transparent rounded-full" />
-                          Running...
+                          <div className="animate-spin mr-2 h-5 w-5 border-2 border-primary-foreground border-t-transparent rounded-full" />
+                          Running Attack...
                         </>
                       ) : (
                         <>
-                          <Play size={16} weight="fill" />
+                          <Play size={20} weight="fill" />
                           Run Attack
                         </>
                       )}
@@ -401,35 +411,38 @@ function App() {
               <div className="space-y-6">
                 {result ? (
                   <>
-                    <Card className="p-6 bg-card border-border">
-                      <h2 className="text-lg font-semibold mb-4">Attack Results</h2>
+                    <Card className="p-6 bg-card/80 backdrop-blur-sm border-border/60 shadow-lg">
+                      <h2 className="text-xl font-bold mb-6 flex items-center gap-2">
+                        <span className="w-1 h-6 bg-accent rounded-full"></span>
+                        Attack Results
+                      </h2>
                       
-                      <div className="grid grid-cols-2 gap-4 mb-4">
-                        <div>
-                          <div className="text-xs text-muted-foreground mb-1">Algorithm</div>
-                          <div className="text-lg font-semibold">{result.algorithm?.toUpperCase() || 'LLL'}</div>
+                      <div className="grid grid-cols-2 gap-4 mb-6">
+                        <div className="p-4 rounded-lg bg-secondary/50 border border-border/40">
+                          <div className="text-xs text-muted-foreground mb-1.5 uppercase tracking-wider">Algorithm</div>
+                          <div className="text-xl font-bold text-primary">{result.algorithm?.toUpperCase() || 'LLL'}</div>
                         </div>
                         {result.blockSize && (
-                          <div>
-                            <div className="text-xs text-muted-foreground mb-1">Block Size</div>
-                            <div className="text-lg font-semibold">{result.blockSize}</div>
+                          <div className="p-4 rounded-lg bg-secondary/50 border border-border/40">
+                            <div className="text-xs text-muted-foreground mb-1.5 uppercase tracking-wider">Block Size</div>
+                            <div className="text-xl font-bold text-accent">{result.blockSize}</div>
                           </div>
                         )}
-                        <div>
-                          <div className="text-xs text-muted-foreground mb-1">Iterations</div>
-                          <div className="text-lg font-semibold">{result.iterations}</div>
+                        <div className="p-4 rounded-lg bg-secondary/50 border border-border/40">
+                          <div className="text-xs text-muted-foreground mb-1.5 uppercase tracking-wider">Iterations</div>
+                          <div className="text-xl font-bold text-foreground">{result.iterations}</div>
                         </div>
-                        <div>
-                          <div className="text-xs text-muted-foreground mb-1">Execution Time</div>
-                          <div className="text-lg font-semibold">{result.executionTime}ms</div>
+                        <div className="p-4 rounded-lg bg-secondary/50 border border-border/40">
+                          <div className="text-xs text-muted-foreground mb-1.5 uppercase tracking-wider">Time</div>
+                          <div className="text-xl font-bold text-foreground">{result.executionTime}ms</div>
                         </div>
                       </div>
 
-                      <Alert className={result.success ? 'border-success bg-success/10' : 'border-muted-foreground/30'}>
-                        <AlertDescription className="text-xs">
+                      <Alert className={result.success ? 'border-success/50 bg-success/10' : 'border-warning/50 bg-warning/10'}>
+                        <AlertDescription className="text-sm font-medium">
                           {result.success
-                            ? 'Algorithm converged successfully. Reduced basis found.'
-                            : 'Algorithm completed but may not have fully converged.'}
+                            ? '✓ Algorithm converged successfully. Reduced basis found.'
+                            : '⚠ Algorithm completed but may not have fully converged.'}
                         </AlertDescription>
                       </Alert>
                     </Card>
@@ -449,12 +462,14 @@ function App() {
                     )}
                   </>
                 ) : (
-                  <Card className="p-6 bg-card border-border">
-                    <div className="text-center py-12">
-                      <Calculator size={48} className="mx-auto mb-4 text-muted-foreground" />
-                      <h3 className="text-sm font-semibold mb-2">No Results Yet</h3>
-                      <p className="text-xs text-muted-foreground">
-                        Configure your attack and click "Run Attack" to see results
+                  <Card className="p-6 bg-card/80 backdrop-blur-sm border-border/60 shadow-lg">
+                    <div className="text-center py-16">
+                      <div className="inline-flex p-6 rounded-2xl bg-muted/30 mb-6">
+                        <Calculator size={56} className="text-muted-foreground/40" weight="duotone" />
+                      </div>
+                      <h3 className="text-lg font-bold mb-2">No Results Yet</h3>
+                      <p className="text-sm text-muted-foreground max-w-xs mx-auto">
+                        Configure your attack parameters and click "Run Attack" to see results
                       </p>
                     </div>
                   </Card>
@@ -493,27 +508,44 @@ function App() {
                 </div>
               </>
             ) : (
-              <Card className="p-6 bg-card border-border">
-                <div className="text-center py-12">
-                  <ChartLine size={48} className="mx-auto mb-4 text-muted-foreground" />
-                  <h3 className="text-sm font-semibold mb-2">No Visualization Data</h3>
-                  <p className="text-xs text-muted-foreground mb-4">
-                    Enable "Capture visualization steps" and run an attack to see animated transformations
+              <Card className="p-6 bg-card/80 backdrop-blur-sm border-border/60 shadow-lg">
+                <div className="text-center py-16">
+                  <div className="inline-flex p-6 rounded-2xl bg-muted/30 mb-6">
+                    <ChartLine size={56} className="text-muted-foreground/40" weight="duotone" />
+                  </div>
+                  <h3 className="text-lg font-bold mb-3">No Visualization Data</h3>
+                  <p className="text-sm text-muted-foreground max-w-md mx-auto mb-6">
+                    Enable "Capture visualization steps" in the Attack tab and run an attack to see animated vector transformations and reduction progress
                   </p>
+                  <Button 
+                    variant="outline" 
+                    size="sm"
+                    onClick={() => {
+                      const tabs = document.querySelector('[value="attack"]') as HTMLElement
+                      tabs?.click()
+                    }}
+                    className="border-primary/30 hover:bg-primary/10"
+                  >
+                    Go to Attack Tab
+                  </Button>
                 </div>
               </Card>
             )}
           </TabsContent>
 
           <TabsContent value="history" className="space-y-6">
-            <Card className="p-6 bg-card border-border">
-              <div className="flex items-center justify-between mb-4">
-                <h2 className="text-lg font-semibold">Attack History</h2>
+            <Card className="p-6 bg-card/80 backdrop-blur-sm border-border/60 shadow-lg">
+              <div className="flex items-center justify-between mb-6">
+                <h2 className="text-xl font-bold flex items-center gap-2">
+                  <span className="w-1 h-6 bg-primary rounded-full"></span>
+                  Attack History
+                </h2>
                 {(attackHistory?.length || 0) > 0 && (
                   <Button
                     variant="outline"
                     size="sm"
                     onClick={handleClearHistory}
+                    className="border-destructive/30 hover:bg-destructive/10 hover:border-destructive/50 text-destructive"
                   >
                     Clear History
                   </Button>
@@ -521,15 +553,17 @@ function App() {
               </div>
 
               {(attackHistory?.length || 0) === 0 ? (
-                <div className="text-center py-12">
-                  <ListBullets size={48} className="mx-auto mb-4 text-muted-foreground" />
-                  <h3 className="text-sm font-semibold mb-2">No Attack History</h3>
-                  <p className="text-xs text-muted-foreground">
+                <div className="text-center py-16">
+                  <div className="inline-flex p-6 rounded-2xl bg-muted/30 mb-6">
+                    <ListBullets size={56} className="text-muted-foreground/40" weight="duotone" />
+                  </div>
+                  <h3 className="text-lg font-bold mb-2">No Attack History</h3>
+                  <p className="text-sm text-muted-foreground max-w-xs mx-auto">
                     Run your first attack to start building history
                   </p>
                 </div>
               ) : (
-                <ScrollArea className="h-[600px] pr-4">
+                <ScrollArea className="h-[650px] pr-4">
                   <div className="space-y-4">
                     {(attackHistory || []).map((history, idx) => (
                       <AttackCard
@@ -545,11 +579,14 @@ function App() {
           </TabsContent>
 
           <TabsContent value="help" className="space-y-6">
-            <Card className="p-6 bg-card border-border">
-              <h2 className="text-lg font-semibold mb-4">Block Range Tester</h2>
-              <div className="space-y-4 text-sm">
-                <p>
-                  The <strong>Block Range Tester</strong> allows you to test continuous automation across 
+            <Card className="p-6 bg-gradient-to-br from-card/90 to-card/70 backdrop-blur-sm border-border/60 shadow-lg">
+              <h2 className="text-xl font-bold mb-6 flex items-center gap-2">
+                <span className="w-1 h-6 bg-primary rounded-full"></span>
+                Block Range Tester
+              </h2>
+              <div className="space-y-4 text-sm leading-relaxed">
+                <p className="text-foreground/90">
+                  The <strong className="text-primary">Block Range Tester</strong> allows you to test continuous automation across 
                   multiple block ranges simultaneously. This is essential for validating that the automation 
                   engine works correctly with various blockchain data and RPC configurations.
                 </p>
@@ -625,13 +662,16 @@ function App() {
               </div>
             </Card>
 
-            <Card className="p-6 bg-card border-border">
-              <h2 className="text-lg font-semibold mb-4">About LLL & BKZ Algorithms</h2>
-              <div className="space-y-4 text-sm">
-                <p>
-                  The <strong>Lenstra-Lenstra-Lovász (LLL)</strong> algorithm is a polynomial-time lattice basis 
+            <Card className="p-6 bg-gradient-to-br from-card/90 to-card/70 backdrop-blur-sm border-border/60 shadow-lg">
+              <h2 className="text-xl font-bold mb-6 flex items-center gap-2">
+                <span className="w-1 h-6 bg-accent rounded-full"></span>
+                About LLL & BKZ Algorithms
+              </h2>
+              <div className="space-y-4 text-sm leading-relaxed">
+                <p className="text-foreground/90">
+                  The <strong className="text-primary">Lenstra-Lenstra-Lovász (LLL)</strong> algorithm is a polynomial-time lattice basis 
                   reduction algorithm that finds a "reduced" basis with relatively short, nearly orthogonal vectors.
-                  <strong> BKZ (Block Korkine-Zolotarev)</strong> extends LLL with block-wise processing for stronger reduction.
+                  <strong className="text-accent"> BKZ (Block Korkine-Zolotarev)</strong> extends LLL with block-wise processing for stronger reduction.
                 </p>
                 
                 <Separator />
@@ -690,10 +730,13 @@ function App() {
               </div>
             </Card>
 
-            <Card className="p-6 bg-card border-border">
-              <h2 className="text-lg font-semibold mb-4">RPC Signature Scanner & Batch Analysis</h2>
-              <div className="space-y-4 text-sm">
-                <p>
+            <Card className="p-6 bg-gradient-to-br from-card/90 to-card/70 backdrop-blur-sm border-border/60 shadow-lg">
+              <h2 className="text-xl font-bold mb-6 flex items-center gap-2">
+                <span className="w-1 h-6 bg-success rounded-full"></span>
+                RPC Signature Scanner & Batch Analysis
+              </h2>
+              <div className="space-y-4 text-sm leading-relaxed">
+                <p className="text-foreground/90">
                   The RPC Scanner connects to Ethereum-compatible blockchain nodes to analyze transaction signatures 
                   for cryptographic weaknesses. It automatically detects vulnerabilities and generates attack configurations.
                   The new batch analysis feature detects patterns across multiple transactions.
@@ -800,10 +843,13 @@ function App() {
               </div>
             </Card>
 
-            <Card className="p-6 bg-card border-border">
-              <h2 className="text-lg font-semibold mb-4">ML Pattern Prediction</h2>
-              <div className="space-y-4 text-sm">
-                <p>
+            <Card className="p-6 bg-gradient-to-br from-card/90 to-card/70 backdrop-blur-sm border-border/60 shadow-lg">
+              <h2 className="text-xl font-bold mb-6 flex items-center gap-2">
+                <span className="w-1 h-6 bg-warning rounded-full"></span>
+                ML Pattern Prediction
+              </h2>
+              <div className="space-y-4 text-sm leading-relaxed">
+                <p className="text-foreground/90">
                   The ML Pattern Prediction system uses machine learning to forecast which unscanned blocks are most 
                   likely to contain cryptographic vulnerabilities. By analyzing historical scan data, it identifies 
                   patterns and prioritizes high-risk blocks for efficient scanning.
@@ -866,11 +912,14 @@ function App() {
               </div>
             </Card>
 
-            <Card className="p-6 bg-card border-border">
-              <h2 className="text-lg font-semibold mb-4">Full Automation Workflow</h2>
-              <div className="space-y-4 text-sm">
-                <p>
-                  The <strong>Automation Engine</strong> provides a fully automated workflow that continuously scans 
+            <Card className="p-6 bg-gradient-to-br from-card/90 to-card/70 backdrop-blur-sm border-border/60 shadow-lg">
+              <h2 className="text-xl font-bold mb-6 flex items-center gap-2">
+                <span className="w-1 h-6 bg-primary rounded-full"></span>
+                Full Automation Workflow
+              </h2>
+              <div className="space-y-4 text-sm leading-relaxed">
+                <p className="text-foreground/90">
+                  The <strong className="text-accent">Automation Engine</strong> provides a fully automated workflow that continuously scans 
                   blockchain RPC endpoints, detects vulnerabilities, executes attacks, and learns optimal configurations.
                 </p>
                 
@@ -939,63 +988,73 @@ function App() {
               </div>
             </Card>
 
-            <Card className="p-6 bg-card border-border">
-              <h2 className="text-lg font-semibold mb-4">Quick Start</h2>
-              <div className="space-y-3 text-sm">
-                <div className="flex gap-3">
-                  <div className="flex-shrink-0 w-6 h-6 rounded-full bg-primary text-primary-foreground flex items-center justify-center text-xs font-bold">
+            <Card className="p-6 bg-gradient-to-br from-primary/10 to-accent/10 backdrop-blur-sm border-primary/30 shadow-lg">
+              <h2 className="text-xl font-bold mb-6 flex items-center gap-2">
+                <Lightbulb size={24} weight="duotone" className="text-primary" />
+                Quick Start Guide
+              </h2>
+              <div className="space-y-4 text-sm">
+                <div className="flex gap-4 p-4 rounded-lg bg-card/50 border border-border/40 hover:border-primary/40 transition-colors">
+                  <div className="flex-shrink-0 w-8 h-8 rounded-full bg-gradient-to-br from-primary to-accent text-primary-foreground flex items-center justify-center text-sm font-bold shadow-lg">
                     1
                   </div>
                   <div>
-                    <strong>Test Your Setup:</strong> Use Range Tester to validate RPC connectivity and automation across multiple block ranges
+                    <strong className="text-foreground block mb-1">Test Your Setup</strong>
+                    <span className="text-muted-foreground">Use Range Tester to validate RPC connectivity and automation across multiple block ranges</span>
                   </div>
                 </div>
-                <div className="flex gap-3">
-                  <div className="flex-shrink-0 w-6 h-6 rounded-full bg-primary text-primary-foreground flex items-center justify-center text-xs font-bold">
+                <div className="flex gap-4 p-4 rounded-lg bg-card/50 border border-border/40 hover:border-primary/40 transition-colors">
+                  <div className="flex-shrink-0 w-8 h-8 rounded-full bg-gradient-to-br from-primary to-accent text-primary-foreground flex items-center justify-center text-sm font-bold shadow-lg">
                     2
                   </div>
                   <div>
-                    <strong>Choose a Template:</strong> Click "Templates" to load a pre-configured attack example
+                    <strong className="text-foreground block mb-1">Choose a Template</strong>
+                    <span className="text-muted-foreground">Click "Templates" to load a pre-configured attack example</span>
                   </div>
                 </div>
-                <div className="flex gap-3">
-                  <div className="flex-shrink-0 w-6 h-6 rounded-full bg-primary text-primary-foreground flex items-center justify-center text-xs font-bold">
+                <div className="flex gap-4 p-4 rounded-lg bg-card/50 border border-border/40 hover:border-primary/40 transition-colors">
+                  <div className="flex-shrink-0 w-8 h-8 rounded-full bg-gradient-to-br from-primary to-accent text-primary-foreground flex items-center justify-center text-sm font-bold shadow-lg">
                     3
                   </div>
                   <div>
-                    <strong>Automated Workflow:</strong> Use the Automation Engine to continuously scan, analyze, and attack
+                    <strong className="text-foreground block mb-1">Automated Workflow</strong>
+                    <span className="text-muted-foreground">Use the Automation Engine to continuously scan, analyze, and attack</span>
                   </div>
                 </div>
-                <div className="flex gap-3">
-                  <div className="flex-shrink-0 w-6 h-6 rounded-full bg-primary text-primary-foreground flex items-center justify-center text-xs font-bold">
+                <div className="flex gap-4 p-4 rounded-lg bg-card/50 border border-border/40 hover:border-primary/40 transition-colors">
+                  <div className="flex-shrink-0 w-8 h-8 rounded-full bg-gradient-to-br from-primary to-accent text-primary-foreground flex items-center justify-center text-sm font-bold shadow-lg">
                     4
                   </div>
                   <div>
-                    <strong>Manual Scan:</strong> Use RPC Scanner to detect weak signatures, then run Batch Analysis to find cross-transaction patterns
+                    <strong className="text-foreground block mb-1">Manual Scan</strong>
+                    <span className="text-muted-foreground">Use RPC Scanner to detect weak signatures, then run Batch Analysis to find cross-transaction patterns</span>
                   </div>
                 </div>
-                <div className="flex gap-3">
-                  <div className="flex-shrink-0 w-6 h-6 rounded-full bg-primary text-primary-foreground flex items-center justify-center text-xs font-bold">
+                <div className="flex gap-4 p-4 rounded-lg bg-card/50 border border-border/40 hover:border-primary/40 transition-colors">
+                  <div className="flex-shrink-0 w-8 h-8 rounded-full bg-gradient-to-br from-primary to-accent text-primary-foreground flex items-center justify-center text-sm font-bold shadow-lg">
                     5
                   </div>
                   <div>
-                    <strong>ML Predictions:</strong> Use machine learning to forecast vulnerable blocks and prioritize scanning
+                    <strong className="text-foreground block mb-1">ML Predictions</strong>
+                    <span className="text-muted-foreground">Use machine learning to forecast vulnerable blocks and prioritize scanning</span>
                   </div>
                 </div>
-                <div className="flex gap-3">
-                  <div className="flex-shrink-0 w-6 h-6 rounded-full bg-primary text-primary-foreground flex items-center justify-center text-xs font-bold">
+                <div className="flex gap-4 p-4 rounded-lg bg-card/50 border border-border/40 hover:border-primary/40 transition-colors">
+                  <div className="flex-shrink-0 w-8 h-8 rounded-full bg-gradient-to-br from-primary to-accent text-primary-foreground flex items-center justify-center text-sm font-bold shadow-lg">
                     6
                   </div>
                   <div>
-                    <strong>Configure Attack:</strong> Select algorithm (LLL/BKZ), adjust parameters, and set block size if using BKZ
+                    <strong className="text-foreground block mb-1">Configure Attack</strong>
+                    <span className="text-muted-foreground">Select algorithm (LLL/BKZ), adjust parameters, and set block size if using BKZ</span>
                   </div>
                 </div>
-                <div className="flex gap-3">
-                  <div className="flex-shrink-0 w-6 h-6 rounded-full bg-primary text-primary-foreground flex items-center justify-center text-xs font-bold">
+                <div className="flex gap-4 p-4 rounded-lg bg-card/50 border border-border/40 hover:border-primary/40 transition-colors">
+                  <div className="flex-shrink-0 w-8 h-8 rounded-full bg-gradient-to-br from-primary to-accent text-primary-foreground flex items-center justify-center text-sm font-bold shadow-lg">
                     7
                   </div>
                   <div>
-                    <strong>Run & Analyze:</strong> Execute attacks and view results, visualizations, and learned patterns
+                    <strong className="text-foreground block mb-1">Run & Analyze</strong>
+                    <span className="text-muted-foreground">Execute attacks and view results, visualizations, and learned patterns</span>
                   </div>
                 </div>
               </div>
