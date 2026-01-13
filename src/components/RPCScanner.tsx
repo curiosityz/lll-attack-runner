@@ -26,7 +26,7 @@ interface RPCScannerProps {
 }
 
 export function RPCScanner({ onAttackGenerated }: RPCScannerProps) {
-  const [rpcUrl, setRpcUrl] = useState('https://eth.llamarpc.com')
+  const [rpcUrl, setRpcUrl] = useState('https://rpc.ankr.com/eth')
   const [fromBlock, setFromBlock] = useState('21000000')
   const [toBlock, setToBlock] = useState('21000005')
   const [isScanning, setIsScanning] = useState(false)
@@ -347,18 +347,9 @@ export function RPCScanner({ onAttackGenerated }: RPCScannerProps) {
                 variant="outline"
                 size="sm"
                 className="text-xs"
-                onClick={() => setRpcUrl('https://eth.llamarpc.com')}
-              >
-                LlamaRPC
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                className="text-xs"
                 onClick={() => setRpcUrl('https://rpc.ankr.com/eth')}
               >
-                Ankr
+                Ankr (Recommended)
               </Button>
               <Button
                 type="button"
@@ -383,14 +374,33 @@ export function RPCScanner({ onAttackGenerated }: RPCScannerProps) {
                 variant="outline"
                 size="sm"
                 className="text-xs"
+                onClick={() => setRpcUrl('https://eth.llamarpc.com')}
+              >
+                LlamaRPC
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="text-xs"
                 onClick={() => setRpcUrl('https://1rpc.io/eth')}
               >
                 1RPC
               </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="text-xs"
+                onClick={() => setRpcUrl('https://rpc.payload.de')}
+              >
+                Payload
+              </Button>
             </div>
             <Alert className="mt-3">
               <AlertDescription className="text-xs">
-                <strong>Private RPC endpoints:</strong> Supports Infura, Alchemy, QuickNode, Google Cloud Blockchain RPC, and other providers. 
+                <strong>Connection Strategy:</strong> The scanner tries direct connection first, then automatically cycles through 7 CORS proxy services for redundancy. 
+                <strong className="ml-1">Private RPC endpoints:</strong> Supports Infura, Alchemy, QuickNode, Google Cloud Blockchain RPC, and other providers. 
                 Just paste your full URL with API key (e.g., <code className="text-accent">https://mainnet.infura.io/v3/YOUR_KEY</code> or 
                 <code className="text-accent ml-1">https://blockchain.googleapis.com/v1/projects/PROJECT/locations/LOCATION/endpoints/ENDPOINT/rpc?key=API_KEY</code>)
               </AlertDescription>

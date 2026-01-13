@@ -613,11 +613,13 @@ function App() {
                 <div>
                   <h3 className="font-semibold mb-2">RPC Endpoint Tips</h3>
                   <ul className="list-disc list-inside space-y-1 text-muted-foreground">
-                    <li><strong>CORS Proxy:</strong> All RPC requests automatically use a CORS proxy to bypass browser restrictions</li>
-                    <li><strong>Public RPCs:</strong> https://eth.llamarpc.com, https://rpc.ankr.com/eth</li>
-                    <li><strong>Private RPCs:</strong> Add your API key in the URL query string</li>
+                    <li><strong>Connection Strategy:</strong> Scanner tries direct connection first (fastest), then automatically uses CORS proxies if needed</li>
+                    <li><strong>Recommended Public RPCs:</strong> https://rpc.ankr.com/eth (best reliability), https://ethereum.publicnode.com, https://cloudflare-eth.com</li>
+                    <li><strong>Private RPCs:</strong> Full URL with API key works (Infura, Alchemy, QuickNode, Google Cloud)</li>
+                    <li><strong>Google Cloud Format:</strong> https://blockchain.googleapis.com/v1/projects/PROJECT_ID/locations/REGION/endpoints/ethereum-mainnet/rpc?key=API_KEY</li>
                     <li><strong>Rate Limits:</strong> Free endpoints may throttle - reduce batch size if errors occur</li>
                     <li><strong>Latency:</strong> Choose geographically close endpoints for faster responses</li>
+                    <li><strong>Proxy Health:</strong> Monitor the CORS Proxy Status panel to see which proxies are working</li>
                   </ul>
                 </div>
               </div>
@@ -760,14 +762,15 @@ function App() {
                 <div>
                   <h3 className="font-semibold mb-2">Troubleshooting RPC Issues</h3>
                   <ul className="list-disc list-inside space-y-1 text-muted-foreground">
+                    <li><strong>All Proxies Failing:</strong> The scanner tries direct connection first, then cycles through 7 CORS proxies. If all fail, the RPC endpoint itself may be down or blocking requests. Try a different public RPC from the quick-select buttons.</li>
+                    <li><strong>403 Forbidden Errors:</strong> Some CORS proxies may be temporarily blocking requests. The system automatically switches to the next available proxy. Wait 5 minutes for blacklisted proxies to reset, or click "Reset" in CORS Proxy Status.</li>
                     <li><strong>Error -32602 (Invalid Argument):</strong> Block number format issue - should now be fixed automatically. Try restarting the scan.</li>
-                    <li><strong>Connection Timeout:</strong> RPC endpoint may be slow or rate-limiting requests. Try a different provider.</li>
+                    <li><strong>Connection Timeout:</strong> RPC endpoint may be slow or rate-limiting requests. Try a different provider like Ankr or PublicNode.</li>
                     <li><strong>No Transactions Found:</strong> Recent blocks may have few transactions. Try older block ranges (e.g., 19000000-19000100).</li>
                     <li><strong>HTTP 429 Errors:</strong> Rate limit exceeded. Reduce "Blocks Per Scan" or use a paid RPC provider.</li>
-                    <li><strong>403/401 Errors:</strong> Check your API key is correct in the URL.</li>
+                    <li><strong>Private RPC (Google Cloud) 403:</strong> Check API key is correct and has Blockchain Node Engine API enabled. Verify project ID and location match your configuration.</li>
                     <li><strong>Continuous Scan Not Working:</strong> Make sure "Enable Continuous Scanning" is toggled ON before clicking "Start Auto".</li>
                     <li><strong>Many Consecutive Errors:</strong> The scanner will automatically retry with exponential backoff. Check your RPC endpoint health.</li>
-                    <li><strong>CORS Errors:</strong> The app uses multiple CORS proxy services automatically. If one fails, it switches to the next available proxy. Check the CORS Proxy Status panel for active proxy and health metrics.</li>
                   </ul>
                 </div>
 
@@ -776,17 +779,21 @@ function App() {
                 <div>
                   <h3 className="font-semibold mb-2">CORS Proxy Redundancy</h3>
                   <p className="text-muted-foreground mb-2">
-                    All RPC requests automatically route through CORS proxies to bypass browser restrictions. The system includes 5 different proxy services for redundancy:
+                    All RPC requests automatically route through CORS proxies to bypass browser restrictions. The system includes 7 different proxy services for maximum redundancy:
                   </p>
                   <ul className="list-disc list-inside space-y-1 text-muted-foreground">
-                    <li><strong>corsproxy.io:</strong> Primary proxy - fast and reliable</li>
-                    <li><strong>cors-anywhere:</strong> Popular open-source fallback</li>
-                    <li><strong>allorigins:</strong> Alternative with good reliability</li>
-                    <li><strong>thingproxy:</strong> Lightweight backup option</li>
-                    <li><strong>cors.sh:</strong> Simple proxy with minimal overhead</li>
+                    <li><strong>Direct Connection:</strong> Always tries direct connection first (fastest if CORS is configured)</li>
+                    <li><strong>cors-proxy.htmldriven.com:</strong> Primary proxy - reliable for API requests</li>
+                    <li><strong>api.codetabs.com:</strong> Free proxy with excellent uptime</li>
+                    <li><strong>proxy.cors.sh:</strong> Modern proxy with simple interface</li>
+                    <li><strong>corsproxy.io:</strong> Fast proxy with good reliability</li>
+                    <li><strong>api.allorigins.win:</strong> Alternative service</li>
+                    <li><strong>yacdn.org:</strong> CDN-based proxy</li>
+                    <li><strong>cors-anywhere.herokuapp:</strong> Open-source fallback</li>
                   </ul>
                   <p className="text-muted-foreground mt-2">
-                    <strong>Automatic Failover:</strong> If a proxy fails 3 times, it's blacklisted for 5 minutes while the system uses the next available proxy. 
+                    <strong>Automatic Failover:</strong> System tries direct connection first, then cycles through proxies. 
+                    If a proxy fails 3 times, it's blacklisted for 5 minutes while the system uses the next available proxy. 
                     You can monitor proxy health and reset failures in the CORS Proxy Status panel on the Scanner tab.
                   </p>
                 </div>

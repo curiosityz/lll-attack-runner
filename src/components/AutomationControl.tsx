@@ -41,7 +41,7 @@ interface AutomationControlProps {
 }
 
 const DEFAULT_CONFIG: AutomationConfig = {
-  rpcUrl: 'https://eth.llamarpc.com',
+  rpcUrl: 'https://rpc.ankr.com/eth',
   enableAutoScan: false,
   scanInterval: 60000,
   autoAnalyze: true,

@@ -7,34 +7,49 @@ export interface CORSProxyConfig {
 
 export const CORS_PROXIES: CORSProxyConfig[] = [
   {
+    name: 'cors-proxy.htmldriven.com',
+    url: (target) => `https://cors-proxy.htmldriven.com/?url=${encodeURIComponent(target)}`,
+    priority: 1,
+    description: 'Reliable CORS proxy for API requests'
+  },
+  {
+    name: 'api.codetabs.com',
+    url: (target) => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(target)}`,
+    priority: 2,
+    description: 'Free proxy API with good uptime'
+  },
+  {
+    name: 'proxy.cors.sh',
+    url: (target) => {
+      const url = new URL(target)
+      return `https://proxy.cors.sh/${target}`
+    },
+    priority: 3,
+    description: 'Modern CORS proxy with simple interface'
+  },
+  {
     name: 'corsproxy.io',
     url: (target) => `https://corsproxy.io/?${encodeURIComponent(target)}`,
-    priority: 1,
-    description: 'Fast, reliable CORS proxy with good uptime'
-  },
-  {
-    name: 'cors-anywhere (herokuapp)',
-    url: (target) => `https://cors-anywhere.herokuapp.com/${target}`,
-    priority: 2,
-    description: 'Popular open-source CORS proxy'
-  },
-  {
-    name: 'allorigins',
-    url: (target) => `https://api.allorigins.win/raw?url=${encodeURIComponent(target)}`,
-    priority: 3,
-    description: 'Alternative proxy with good reliability'
-  },
-  {
-    name: 'thingproxy',
-    url: (target) => `https://thingproxy.freeboard.io/fetch/${target}`,
     priority: 4,
-    description: 'Lightweight CORS proxy by Freeboard'
+    description: 'Fast proxy with good reliability'
   },
   {
-    name: 'cors.sh',
-    url: (target) => `https://cors.sh/${target}`,
+    name: 'api.allorigins.win',
+    url: (target) => `https://api.allorigins.win/raw?url=${encodeURIComponent(target)}`,
     priority: 5,
-    description: 'Simple CORS proxy with minimal overhead'
+    description: 'Alternative proxy service'
+  },
+  {
+    name: 'yacdn.org',
+    url: (target) => `https://yacdn.org/proxy/${target}`,
+    priority: 6,
+    description: 'CDN-based proxy service'
+  },
+  {
+    name: 'cors-anywhere.herokuapp',
+    url: (target) => `https://cors-anywhere.herokuapp.com/${target}`,
+    priority: 7,
+    description: 'Open-source CORS proxy (may require demo access)'
   }
 ]
 
@@ -172,8 +187,32 @@ export async function fetchWithCORSProxy(
 
   let lastError: Error | null = null
   const availableProxies = CORS_PROXIES.slice()
+  let triedDirect = false
 
-  for (let attempt = 0; attempt < Math.min(maxRetries, availableProxies.length); attempt++) {
+  for (let attempt = 0; attempt < Math.min(maxRetries, availableProxies.length + 1); attempt++) {
+    if (attempt === 0) {
+      console.log(`[CORS Proxy] Attempting direct connection first...`)
+      try {
+        const controller = new AbortController()
+        const timeoutId = setTimeout(() => controller.abort(), 15000)
+
+        const response = await fetch(targetUrl, {
+          ...options,
+          signal: controller.signal,
+        })
+
+        clearTimeout(timeoutId)
+
+        if (response.ok) {
+          console.log(`[CORS Proxy] ✓ Direct connection succeeded!`)
+          return response
+        }
+      } catch (error) {
+        console.log(`[CORS Proxy] Direct connection failed, using proxies...`)
+        triedDirect = true
+      }
+    }
+
     const proxy = corsProxyManager.getCurrentProxy()
     const proxyUrl = proxy.url(targetUrl)
     const startTime = performance.now()
@@ -219,8 +258,8 @@ export async function fetchWithCORSProxy(
   }
 
   throw new Error(
-    `All CORS proxies failed after ${maxRetries} attempts. Last error: ${lastError?.message || 'Unknown'}. ` +
-    `Try using a different RPC endpoint or check your network connection.`
+    `All connection attempts failed after ${maxRetries} tries. Last error: ${lastError?.message || 'Unknown'}. ` +
+    `Please check: 1) RPC endpoint is valid and accessible, 2) API key is correct (for private RPCs), 3) Network connection is stable.`
   )
 }
 
@@ -242,17 +281,45 @@ export async function fetchJSONWithCORSProxy(
   )
 
   const contentType = response.headers.get('content-type')
-  if (!contentType || !contentType.includes('application/json')) {
-    const text = await response.text()
-    throw new Error(`RPC endpoint returned non-JSON response: ${text.slice(0, 200)}`)
+  const responseText = await response.text()
+  
+  if (responseText.includes('<!DOCTYPE') || responseText.includes('<html')) {
+    throw new Error(
+      `RPC endpoint returned HTML instead of JSON. This usually means: ` +
+      `1) The RPC URL is incorrect, 2) The endpoint requires authentication, or ` +
+      `3) The proxy is blocking the request. Response preview: ${responseText.slice(0, 100)}...`
+    )
   }
 
-  const data = await response.json()
+  let data: any
+  try {
+    data = JSON.parse(responseText)
+  } catch (parseError) {
+    throw new Error(
+      `Failed to parse RPC response as JSON. ` +
+      `Response: ${responseText.slice(0, 200)}...`
+    )
+  }
 
   if (data.error) {
-    throw new Error(
-      `RPC Error ${data.error.code || 'UNKNOWN'}: ${data.error.message || 'Unknown error'}`
-    )
+    const errorCode = data.error.code || 'UNKNOWN'
+    const errorMessage = data.error.message || 'Unknown error'
+    
+    if (errorCode === -32602) {
+      throw new Error(
+        `RPC Error -32602 (Invalid params): ${errorMessage}. ` +
+        `This is usually a block number format issue. The scanner will automatically retry.`
+      )
+    }
+    
+    if (errorCode === -32000) {
+      throw new Error(
+        `RPC Error -32000 (Server error): ${errorMessage}. ` +
+        `The RPC node may be rate limiting or having issues.`
+      )
+    }
+    
+    throw new Error(`RPC Error ${errorCode}: ${errorMessage}`)
   }
 
   return data

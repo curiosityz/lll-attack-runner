@@ -52,7 +52,7 @@ const PRESET_RANGES = [
 
 export function BlockRangeTester({ onAttackHistoryUpdate }: BlockRangeTesterProps) {
   const [ranges, setRanges] = useKV<BlockRange[]>('block-range-tests', [])
-  const [rpcUrl, setRpcUrl] = useKV<string>('range-tester-rpc', 'https://eth.llamarpc.com')
+  const [rpcUrl, setRpcUrl] = useKV<string>('range-tester-rpc', 'https://rpc.ankr.com/eth')
   const [newRangeName, setNewRangeName] = useState('')
   const [newStartBlock, setNewStartBlock] = useState('21000000')
   const [newEndBlock, setNewEndBlock] = useState('21000100')
