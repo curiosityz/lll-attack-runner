@@ -1,14 +1,14 @@
 # Planning Guide
 
-A sophisticated web application for running advanced lattice basis reduction attacks (LLL, BKZ) on cryptographic problems, featuring RPC blockchain signature scanning, automated attack generation, comprehensive automation engine, machine learning predictions, stunning visual feedback, and educational context.
+A sophisticated web application for analyzing cryptographic signatures and executing advanced lattice basis reduction attacks (LLL, BKZ). Users upload transaction/signature data dumps, the tool automatically detects vulnerabilities and patterns, then generates and executes targeted attacks.
 
 **Experience Qualities**:
-1. **Automated** - The application orchestrates complete attack workflows from discovery to exploitation with minimal user intervention
-2. **Professional** - The interface conveys technical accuracy, mathematical rigor, and modern design aesthetics appropriate for security research
-3. **Powerful** - The tool feels capable and responsive, suitable for both advanced security research and cryptographic education
+1. **Data-Driven** - Upload large signature datasets and get immediate, actionable intelligence about cryptographic weaknesses
+2. **Professional** - Clean interface for security research with comprehensive analysis and automated attack generation
+3. **Intelligent** - Automated pattern recognition across thousands of signatures with smart attack configuration
 
-**Complexity Level**: Complex Application (advanced functionality with multiple views and full automation)
-- This is a sophisticated security research tool with automated workflow orchestration, RPC blockchain scanning, ML-based prediction, batch pattern analysis, parallel attack execution, pattern learning, and comprehensive visualization across multiple interconnected features.
+**Complexity Level**: Complex Application (advanced functionality with multiple views and intelligent analysis)
+- This is a sophisticated security research tool with file upload parsing, multi-format data ingestion, comprehensive signature analysis, pattern clustering, automated attack generation, and visualization across multiple interconnected features.
 
 ## Essential Features
 

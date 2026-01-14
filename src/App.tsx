@@ -10,7 +10,7 @@ import { Alert, AlertDescription } from '@/components/ui/alert'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Separator } from '@/components/ui/separator'
 import { Checkbox } from '@/components/ui/checkbox'
-import { Play, Lightbulb, Calculator, ListBullets, ChartLine, CloudArrowDown, Lightning } from '@phosphor-icons/react'
+import { Play, Lightbulb, Calculator, ListBullets, ChartLine, UploadSimple, Database } from '@phosphor-icons/react'
 import { toast } from 'sonner'
 import { AttackHistory, AttackType, AttackTemplate, LLLStep, AlgorithmType } from '@/lib/types'
 import { runLLL, parseBasisFromString } from '@/lib/lll'
@@ -22,9 +22,10 @@ import { TemplateDialog } from '@/components/TemplateDialog'
 import { VectorVisualization } from '@/components/VectorVisualization'
 import { MatrixHeatmap } from '@/components/MatrixHeatmap'
 import { OrthogonalityChart } from '@/components/OrthogonalityChart'
-import { RPCScanner } from '@/components/RPCScanner'
-import { AutomationControl } from '@/components/AutomationControl'
-import { BlockRangeTester } from '@/components/BlockRangeTester'
+import { DataUpload } from '@/components/DataUpload'
+import { AnalysisDisplay } from '@/components/AnalysisDisplay'
+import { ParsedSignature, ParseResult } from '@/lib/dataParser'
+import { analyzeSignatures, AnalysisResult, WeakSignature, PatternCluster } from '@/lib/signatureAnalyzer'
 
 function App() {
   const [attackHistory, setAttackHistory] = useKV<AttackHistory[]>('attack-history', [])
@@ -49,6 +50,201 @@ function App() {
     blockSize?: number
   } | null>(null)
   const [templateDialogOpen, setTemplateDialogOpen] = useState(false)
+  
+  const [uploadedSignatures, setUploadedSignatures] = useState<ParsedSignature[]>([])
+  const [analysisResult, setAnalysisResult] = useState<AnalysisResult | null>(null)
+  const [isAnalyzing, setIsAnalyzing] = useState(false)
+
+  const handleDataParsed = (signatures: ParsedSignature[], parseResult: ParseResult) => {
+    setUploadedSignatures(signatures)
+    setIsAnalyzing(true)
+    
+    setTimeout(() => {
+      const result = analyzeSignatures(signatures)
+      setAnalysisResult(result)
+      setIsAnalyzing(false)
+      
+      if (result.weakSignatures.length > 0 || result.patterns.length > 0) {
+        toast.success('Analysis complete!', {
+          description: `Found ${result.weakSignatures.length} weaknesses and ${result.patterns.length} patterns`
+        })
+      }
+    }, 500)
+  }
+  
+  const SECP256K1_N = BigInt('0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141')
+  
+  const generateAttackFromWeakness = (weakness: WeakSignature) => {
+    let basis: number[][]
+    let name: string
+    let algo: AlgorithmType = 'lll'
+    let bSize = 10
+    
+    if (weakness.weakness === 'nonce-reuse' && weakness.relatedSignatures && weakness.relatedSignatures.length > 0) {
+      const sig1 = weakness.signature
+      const sig2 = weakness.relatedSignatures[0]
+      
+      const r1 = sig1.r
+      const s1 = sig1.s
+      const s2 = sig2.s
+      
+      const scale = 1000000n
+      const r1_scaled = Number(r1 / scale)
+      const s1_scaled = Number(s1 / scale)
+      const s2_scaled = Number(s2 / scale)
+      
+      basis = [
+        [r1_scaled, 0, 0],
+        [s1_scaled, 1, 0],
+        [s2_scaled, 0, 1]
+      ]
+      name = `Nonce Reuse Attack - ${sig1.hash.slice(0, 10)}`
+      algo = 'lll'
+      
+    } else if (weakness.weakness === 'biased-k' || weakness.weakness === 'similar-k') {
+      const scale = 1000000000n
+      const n_scaled = Number(SECP256K1_N / scale)
+      const r_scaled = Number(weakness.signature.r / scale)
+      const s_scaled = Number(weakness.signature.s / scale)
+      
+      basis = [
+        [n_scaled, 0, 0, 0],
+        [r_scaled, 1, 0, 0],
+        [s_scaled, 0, 1, 0],
+        [0, 0, 0, Math.floor(Math.sqrt(n_scaled))]
+      ]
+      name = `HNP Attack - ${weakness.weakness} - ${weakness.signature.hash.slice(0, 10)}`
+      algo = 'bkz'
+      bSize = 15
+      
+    } else if (weakness.weakness === 'small-r') {
+      const r_num = Number(weakness.signature.r)
+      const s_num = Number(weakness.signature.s)
+      
+      basis = [
+        [r_num, 0],
+        [s_num, 1]
+      ]
+      name = `Small R Attack - ${weakness.signature.hash.slice(0, 10)}`
+      algo = 'lll'
+      
+    } else {
+      const scale = 1000000n
+      const r_scaled = Number(weakness.signature.r / scale)
+      const s_scaled = Number(weakness.signature.s / scale)
+      
+      basis = [
+        [r_scaled, 0],
+        [s_scaled, 1]
+      ]
+      name = `Generic Attack - ${weakness.weakness}`
+      algo = 'lll'
+    }
+    
+    setAttackType('signature-scan')
+    setAttackName(name)
+    setBasisInput(basis.map(row => row.join(' ')).join('\n'))
+    setAlgorithm(algo)
+    setBlockSize(bSize.toString())
+    setResult(null)
+    setVisualizationSteps([])
+    
+    toast.success('Attack configured!', {
+      description: `Ready to run ${algo.toUpperCase()} attack`
+    })
+  }
+  
+  const generateAttackFromPattern = (pattern: PatternCluster) => {
+    let basis: number[][]
+    let name: string
+    let algo: AlgorithmType = 'bkz'
+    let bSize = 20
+    
+    if (pattern.type === 'nonce-reuse') {
+      const sigs = pattern.signatures.slice(0, 3)
+      const scale = 100000n
+      
+      const rows = sigs.map((sig, idx) => {
+        const r = Number(sig.r / scale)
+        const s = Number(sig.s / scale)
+        const row = new Array(sigs.length + 1).fill(0)
+        row[0] = r
+        row[idx + 1] = s
+        return row
+      })
+      
+      basis = rows
+      name = `Cluster Attack - Nonce Reuse (${sigs.length} sigs)`
+      algo = 'bkz'
+      bSize = Math.min(sigs.length + 5, 25)
+      
+    } else if (pattern.type === 'sequential') {
+      const sigs = pattern.signatures.slice(0, 5)
+      const scale = 1000000n
+      
+      basis = sigs.map((sig, idx) => {
+        const r = Number(sig.r / scale)
+        const s = Number(sig.s / scale)
+        return [r, s, idx * 1000]
+      })
+      name = `Sequential Pattern Attack (${sigs.length} sigs)`
+      algo = 'bkz'
+      bSize = 18
+      
+    } else if (pattern.type === 'biased-lsb' || pattern.type === 'biased-msb') {
+      const sigs = pattern.signatures.slice(0, 10)
+      const scale = 10000000n
+      const n_scaled = Number(SECP256K1_N / scale)
+      
+      basis = sigs.map((sig, idx) => {
+        const r = Number(sig.r / scale)
+        const s = Number(sig.s / scale)
+        const row = new Array(12).fill(0)
+        row[0] = n_scaled
+        row[idx + 1] = r
+        row[idx + 2] = s
+        return row
+      }).slice(0, 10)
+      
+      name = `Bias Attack - ${pattern.type.toUpperCase()} (${sigs.length} sigs)`
+      algo = 'bkz'
+      bSize = 22
+      
+    } else {
+      const sigs = pattern.signatures.slice(0, 4)
+      const scale = 1000000n
+      
+      basis = sigs.map(sig => {
+        const r = Number(sig.r / scale)
+        const s = Number(sig.s / scale)
+        return [r, s]
+      })
+      name = `Pattern Attack - ${pattern.type}`
+      algo = 'bkz'
+      bSize = 15
+    }
+    
+    setAttackType('signature-scan')
+    setAttackName(name)
+    setBasisInput(basis.map(row => row.join(' ')).join('\n'))
+    setAlgorithm(algo)
+    setBlockSize(bSize.toString())
+    setDelta('0.99')
+    setResult(null)
+    setVisualizationSteps([])
+    
+    toast.success('Pattern attack configured!', {
+      description: `Using ${algo.toUpperCase()} with block size ${bSize}`
+    })
+  }
+  
+  const handleGenerateAttack = (item: WeakSignature | PatternCluster, type: 'weakness' | 'pattern') => {
+    if (type === 'weakness') {
+      generateAttackFromWeakness(item as WeakSignature)
+    } else {
+      generateAttackFromPattern(item as PatternCluster)
+    }
+  }
 
   const handleRunAttack = async () => {
     const basis = parseBasisFromString(basisInput)
@@ -168,30 +364,6 @@ function App() {
     toast.success('History cleared')
   }
 
-  const handleRPCAttackGenerated = (
-    basis: number[][], 
-    delta: number, 
-    name: string, 
-    description: string,
-    algorithm?: AlgorithmType,
-    blockSize?: number
-  ) => {
-    setAttackType('signature-scan')
-    setAttackName(name)
-    setBasisInput(basis.map(row => row.join(' ')).join('\n'))
-    setDelta(delta.toString())
-    setAlgorithm(algorithm || 'lll')
-    if (blockSize) {
-      setBlockSize(blockSize.toString())
-    }
-    setResult(null)
-    setVisualizationSteps([])
-    
-    toast.success(`${name} configured - ready to run!`, {
-      description: description
-    })
-  }
-
   return (
     <div className="min-h-screen bg-background/50 p-4 md:p-6 lg:p-8">
       <div className="max-w-[1600px] mx-auto">
@@ -205,29 +377,25 @@ function App() {
                 Lattice Attack Suite
               </h1>
               <p className="text-sm text-muted-foreground mt-1">
-                Advanced LLL/BKZ · RPC Scanning · ML Predictions · Full Automation
+                Upload → Analyze → Discover Weaknesses → Generate Attacks
               </p>
             </div>
           </div>
         </header>
 
-        <Tabs defaultValue="range-tester" className="space-y-6">
-          <TabsList className="grid w-full grid-cols-7 max-w-5xl h-auto p-1.5 bg-card/50 backdrop-blur-sm border border-border/60">
-            <TabsTrigger value="range-tester" className="flex items-center justify-center gap-2 data-[state=active]:bg-primary/15 data-[state=active]:text-primary py-2.5 px-3">
-              <ListBullets size={18} weight="duotone" />
-              <span className="hidden sm:inline">Range Test</span>
+        <Tabs defaultValue="upload" className="space-y-6">
+          <TabsList className="grid w-full grid-cols-5 max-w-3xl h-auto p-1.5 bg-card/50 backdrop-blur-sm border border-border/60">
+            <TabsTrigger value="upload" className="flex items-center justify-center gap-2 data-[state=active]:bg-primary/15 data-[state=active]:text-primary py-2.5 px-3">
+              <UploadSimple size={18} weight="duotone" />
+              <span className="hidden sm:inline">Upload</span>
+            </TabsTrigger>
+            <TabsTrigger value="analyze" className="flex items-center justify-center gap-2 data-[state=active]:bg-primary/15 data-[state=active]:text-primary py-2.5 px-3">
+              <Database size={18} weight="duotone" />
+              <span className="hidden sm:inline">Analyze</span>
             </TabsTrigger>
             <TabsTrigger value="attack" className="flex items-center justify-center gap-2 data-[state=active]:bg-primary/15 data-[state=active]:text-primary py-2.5 px-3">
               <Play size={18} weight="duotone" />
               <span className="hidden sm:inline">Attack</span>
-            </TabsTrigger>
-            <TabsTrigger value="scanner" className="flex items-center justify-center gap-2 data-[state=active]:bg-primary/15 data-[state=active]:text-primary py-2.5 px-3">
-              <CloudArrowDown size={18} weight="duotone" />
-              <span className="hidden sm:inline">Scanner</span>
-            </TabsTrigger>
-            <TabsTrigger value="automation" className="flex items-center justify-center gap-2 data-[state=active]:bg-primary/15 data-[state=active]:text-primary py-2.5 px-3">
-              <Lightning size={18} weight="duotone" />
-              <span className="hidden sm:inline">Auto</span>
             </TabsTrigger>
             <TabsTrigger value="visualization" disabled={visualizationSteps.length === 0} className="flex items-center justify-center gap-2 data-[state=active]:bg-primary/15 data-[state=active]:text-primary py-2.5 px-3">
               <ChartLine size={18} weight="duotone" />
@@ -237,17 +405,29 @@ function App() {
               <ListBullets size={18} weight="duotone" />
               <span className="hidden sm:inline">History</span>
             </TabsTrigger>
-            <TabsTrigger value="help" className="flex items-center justify-center gap-2 data-[state=active]:bg-primary/15 data-[state=active]:text-primary py-2.5 px-3">
-              <Lightbulb size={18} weight="duotone" />
-              <span className="hidden sm:inline">Help</span>
-            </TabsTrigger>
           </TabsList>
 
-          <TabsContent value="range-tester" className="space-y-6">
-            <BlockRangeTester 
-              onAttackHistoryUpdate={(history) => {
-                setAttackHistory((current) => [...history, ...(current || [])].slice(0, 100))
+          <TabsContent value="upload" className="space-y-6">
+            <DataUpload onDataParsed={handleDataParsed} />
+          </TabsContent>
+
+          <TabsContent value="analyze" className="space-y-6">
+            <AnalysisDisplay 
+              result={analysisResult || {
+                totalAnalyzed: 0,
+                weakSignatures: [],
+                patterns: [],
+                statistics: {
+                  totalSignatures: 0,
+                  uniqueAddresses: 0,
+                  rValueDistribution: { min: 0n, max: 0n, mean: 0 },
+                  sValueDistribution: { min: 0n, max: 0n, mean: 0 },
+                  bitBias: { lsb: 0, msb: 0 },
+                  addressFrequency: new Map()
+                }
               }}
+              onGenerateAttack={handleGenerateAttack}
+              isAnalyzing={isAnalyzing}
             />
           </TabsContent>
 
@@ -478,18 +658,6 @@ function App() {
             </div>
           </TabsContent>
 
-          <TabsContent value="scanner" className="space-y-6">
-            <RPCScanner onAttackGenerated={handleRPCAttackGenerated} />
-          </TabsContent>
-
-          <TabsContent value="automation" className="space-y-6">
-            <AutomationControl 
-              onAttackHistoryUpdate={(history) => {
-                setAttackHistory((current) => [...history, ...(current || [])].slice(0, 100))
-              }}
-            />
-          </TabsContent>
-
           <TabsContent value="visualization" className="space-y-6">
             {visualizationSteps.length > 0 ? (
               <>
@@ -575,489 +743,6 @@ function App() {
                   </div>
                 </ScrollArea>
               )}
-            </Card>
-          </TabsContent>
-
-          <TabsContent value="help" className="space-y-6">
-            <Card className="p-6 bg-gradient-to-br from-card/90 to-card/70 backdrop-blur-sm border-border/60 shadow-lg">
-              <h2 className="text-xl font-bold mb-6 flex items-center gap-2">
-                <span className="w-1 h-6 bg-primary rounded-full"></span>
-                Block Range Tester
-              </h2>
-              <div className="space-y-4 text-sm leading-relaxed">
-                <p className="text-foreground/90">
-                  The <strong className="text-primary">Block Range Tester</strong> allows you to test continuous automation across 
-                  multiple block ranges simultaneously. This is essential for validating that the automation 
-                  engine works correctly with various blockchain data and RPC configurations.
-                </p>
-                
-                <Separator />
-                
-                <div>
-                  <h3 className="font-semibold mb-2">Quick Setup</h3>
-                  <div className="space-y-2 text-muted-foreground">
-                    <p>1. Configure your RPC endpoint (supports any Ethereum-compatible node)</p>
-                    <p>2. Add preset ranges (Recent, Mid 2024, Early 2024, etc.) with one click</p>
-                    <p>3. Or create custom ranges with specific start/end blocks and batch sizes</p>
-                    <p>4. Click "Run All" to test all ranges sequentially</p>
-                    <p>5. Monitor progress with real-time metrics and status updates</p>
-                  </div>
-                </div>
-
-                <Separator />
-
-                <div>
-                  <h3 className="font-semibold mb-2">What It Tests</h3>
-                  <ul className="list-disc list-inside space-y-1 text-muted-foreground">
-                    <li><strong>RPC Connectivity:</strong> Validates endpoint availability and response format</li>
-                    <li><strong>Block Scanning:</strong> Tests signature extraction across different time periods</li>
-                    <li><strong>Pattern Detection:</strong> Verifies batch analysis works with varying data density</li>
-                    <li><strong>Attack Execution:</strong> Confirms LLL/BKZ algorithms run correctly on detected weaknesses</li>
-                    <li><strong>Error Handling:</strong> Tests recovery from RPC failures and malformed data</li>
-                    <li><strong>Performance:</strong> Measures scan time and throughput across ranges</li>
-                  </ul>
-                </div>
-
-                <Separator />
-
-                <div>
-                  <h3 className="font-semibold mb-2">Understanding Results</h3>
-                  <ul className="list-disc list-inside space-y-1 text-muted-foreground">
-                    <li><strong>Completed:</strong> Range scanned successfully, all blocks processed</li>
-                    <li><strong>Failed:</strong> RPC error or scan issue - check error message</li>
-                    <li><strong>Weaknesses Found:</strong> Number of vulnerable signatures detected</li>
-                    <li><strong>Attacks Executed:</strong> Number of successful LLL/BKZ attack runs</li>
-                    <li><strong>Time Elapsed:</strong> Total duration for the range in seconds</li>
-                  </ul>
-                </div>
-
-                <Separator />
-
-                <div>
-                  <h3 className="font-semibold mb-2">Best Practices</h3>
-                  <ul className="list-disc list-inside space-y-1 text-muted-foreground">
-                    <li>Start with small ranges (100 blocks) to test RPC connectivity</li>
-                    <li>Use recent blocks (21M+) for faster responses from most RPC providers</li>
-                    <li>Test different time periods to find data-rich ranges</li>
-                    <li>Adjust batch size based on RPC rate limits (10-20 typical)</li>
-                    <li>Monitor failures and switch RPC endpoints if needed</li>
-                    <li>Clear completed ranges periodically to keep UI clean</li>
-                  </ul>
-                </div>
-
-                <Separator />
-
-                <div>
-                  <h3 className="font-semibold mb-2">RPC Endpoint Tips</h3>
-                  <ul className="list-disc list-inside space-y-1 text-muted-foreground">
-                    <li><strong>Connection Strategy:</strong> Scanner tries direct connection first (fastest), then automatically uses CORS proxies if needed</li>
-                    <li><strong>Recommended Public RPCs:</strong> https://rpc.ankr.com/eth (best reliability), https://ethereum.publicnode.com, https://cloudflare-eth.com</li>
-                    <li><strong>Private RPCs:</strong> Full URL with API key works (Infura, Alchemy, QuickNode, Google Cloud)</li>
-                    <li><strong>Google Cloud Format:</strong> https://blockchain.googleapis.com/v1/projects/PROJECT_ID/locations/REGION/endpoints/ethereum-mainnet/rpc?key=API_KEY</li>
-                    <li><strong>Rate Limits:</strong> Free endpoints may throttle - reduce batch size if errors occur</li>
-                    <li><strong>Latency:</strong> Choose geographically close endpoints for faster responses</li>
-                    <li><strong>Proxy Health:</strong> Monitor the CORS Proxy Status panel to see which proxies are working</li>
-                  </ul>
-                </div>
-              </div>
-            </Card>
-
-            <Card className="p-6 bg-gradient-to-br from-card/90 to-card/70 backdrop-blur-sm border-border/60 shadow-lg">
-              <h2 className="text-xl font-bold mb-6 flex items-center gap-2">
-                <span className="w-1 h-6 bg-accent rounded-full"></span>
-                About LLL & BKZ Algorithms
-              </h2>
-              <div className="space-y-4 text-sm leading-relaxed">
-                <p className="text-foreground/90">
-                  The <strong className="text-primary">Lenstra-Lenstra-Lovász (LLL)</strong> algorithm is a polynomial-time lattice basis 
-                  reduction algorithm that finds a "reduced" basis with relatively short, nearly orthogonal vectors.
-                  <strong className="text-accent"> BKZ (Block Korkine-Zolotarev)</strong> extends LLL with block-wise processing for stronger reduction.
-                </p>
-                
-                <Separator />
-                
-                <div>
-                  <h3 className="font-semibold mb-2">How They Work</h3>
-                  <ul className="list-disc list-inside space-y-1 text-muted-foreground">
-                    <li><strong>LLL:</strong> Iteratively reduces vectors using Gram-Schmidt orthogonalization and swaps</li>
-                    <li><strong>BKZ:</strong> Applies LLL to local blocks + SVP enumeration for better reduction</li>
-                    <li>Both produce bases with shorter, more orthogonal vectors</li>
-                    <li>BKZ provides stronger guarantees but requires more computation</li>
-                  </ul>
-                </div>
-
-                <Separator />
-
-                <div>
-                  <h3 className="font-semibold mb-2">Applications in Cryptography</h3>
-                  <ul className="list-disc list-inside space-y-1 text-muted-foreground">
-                    <li><strong>RSA:</strong> Attack small public exponents or factorization problems</li>
-                    <li><strong>Subset Sum:</strong> Solve NP-complete problems with low density</li>
-                    <li><strong>Knapsack:</strong> Break Merkle-Hellman and similar cryptosystems</li>
-                    <li><strong>Hidden Number Problem:</strong> Recover secret keys from partial information</li>
-                    <li><strong>ECDSA/DSA:</strong> Exploit nonce reuse or bias in signature schemes</li>
-                  </ul>
-                </div>
-
-                <Separator />
-
-                <div>
-                  <h3 className="font-semibold mb-2">Algorithm Selection</h3>
-                  <p className="text-muted-foreground mb-2">
-                    Choose the appropriate algorithm for your attack:
-                  </p>
-                  <ul className="list-disc list-inside space-y-1 text-muted-foreground">
-                    <li><strong>LLL (δ=0.75):</strong> Fast, good for most attacks and learning</li>
-                    <li><strong>LLL (δ=0.99):</strong> Better reduction, still fast enough for practice</li>
-                    <li><strong>BKZ (block=10):</strong> Stronger reduction, good balance of speed/quality</li>
-                    <li><strong>BKZ (block=20+):</strong> Highest quality, use for challenging problems</li>
-                  </ul>
-                </div>
-
-                <Separator />
-
-                <div>
-                  <h3 className="font-semibold mb-2">Input Format</h3>
-                  <p className="text-muted-foreground mb-2">
-                    Enter your lattice basis as a matrix, one row per line. Separate values with spaces or commas:
-                  </p>
-                  <div className="bg-secondary/50 p-3 rounded font-mono text-xs">
-                    1 2 3<br />
-                    4 5 6<br />
-                    7 8 9
-                  </div>
-                </div>
-              </div>
-            </Card>
-
-            <Card className="p-6 bg-gradient-to-br from-card/90 to-card/70 backdrop-blur-sm border-border/60 shadow-lg">
-              <h2 className="text-xl font-bold mb-6 flex items-center gap-2">
-                <span className="w-1 h-6 bg-success rounded-full"></span>
-                RPC Signature Scanner & Batch Analysis
-              </h2>
-              <div className="space-y-4 text-sm leading-relaxed">
-                <p className="text-foreground/90">
-                  The RPC Scanner connects to Ethereum-compatible blockchain nodes to analyze transaction signatures 
-                  for cryptographic weaknesses. It automatically detects vulnerabilities and generates attack configurations.
-                  The new batch analysis feature detects patterns across multiple transactions.
-                </p>
-                
-                <Separator />
-                
-                <div>
-                  <h3 className="font-semibold mb-2">Individual Signature Detection</h3>
-                  <ul className="list-disc list-inside space-y-1 text-muted-foreground">
-                    <li><strong>Nonce Reuse (Critical):</strong> Same k used in multiple signatures - private key recoverable</li>
-                    <li><strong>Biased Nonces (High):</strong> Non-random k values reveal patterns exploitable via HNP</li>
-                    <li><strong>Similar k Values (High):</strong> Close nonce values indicate weak RNG</li>
-                    <li><strong>Small r Values (Critical):</strong> Extremely small r suggests implementation errors</li>
-                    <li><strong>High s Values (Low):</strong> Non-canonical signatures (normalization issue)</li>
-                  </ul>
-                </div>
-
-                <Separator />
-
-                <div>
-                  <h3 className="font-semibold mb-2">Batch Analysis Patterns</h3>
-                  <p className="text-muted-foreground mb-2">
-                    Batch analysis examines all scanned signatures to detect multi-transaction patterns:
-                  </p>
-                  <ul className="list-disc list-inside space-y-1 text-muted-foreground">
-                    <li><strong>Nonce Reuse Clusters:</strong> Multiple signatures sharing the same r-value across addresses</li>
-                    <li><strong>Sequential Nonces:</strong> Predictable progression of k-values in consecutive signatures</li>
-                    <li><strong>Biased LSB/MSB:</strong> Statistical bias in least/most significant bits of nonces</li>
-                    <li><strong>Temporal Correlation:</strong> Nonces that correlate with transaction timestamps</li>
-                    <li><strong>Address Clustering:</strong> High-activity addresses with low entropy signatures</li>
-                    <li><strong>Cross-Address Correlation:</strong> Similar r-values across different addresses</li>
-                  </ul>
-                </div>
-
-                <Separator />
-
-                <div>
-                  <h3 className="font-semibold mb-2">Using Batch Analysis</h3>
-                  <div className="space-y-2 text-muted-foreground">
-                    <p>1. Scan a block range with "Scan for Weak Signatures"</p>
-                    <p>2. Click "Run Batch Analysis" to detect cross-transaction patterns</p>
-                    <p>3. Review pattern clusters with confidence scores and metadata</p>
-                    <p>4. Check statistical patterns for entropy reduction and bit bias</p>
-                    <p>5. Read recommendations for optimal attack strategy</p>
-                    <p>6. Click "Generate Attack from Cluster" on any pattern</p>
-                    <p>7. Batch attacks automatically select LLL or BKZ with optimal parameters</p>
-                  </div>
-                </div>
-
-                <Separator />
-
-                <div>
-                  <h3 className="font-semibold mb-2">Attack Generation</h3>
-                  <p className="text-muted-foreground">
-                    For each detected weakness or pattern cluster, the scanner automatically constructs an appropriate 
-                    lattice basis that can be used to recover private keys or exploit the vulnerability. Nonce reuse 
-                    attacks allow direct key recovery, while biased nonces require Hidden Number Problem (HNP) lattice 
-                    reduction. Batch attacks intelligently select between LLL and BKZ algorithms with optimal block sizes 
-                    based on pattern complexity.
-                  </p>
-                </div>
-
-                <Separator />
-
-                <div>
-                  <h3 className="font-semibold mb-2">Troubleshooting RPC Issues</h3>
-                  <ul className="list-disc list-inside space-y-1 text-muted-foreground">
-                    <li><strong>All Proxies Failing:</strong> The scanner tries direct connection first, then cycles through 7 CORS proxies. If all fail, the RPC endpoint itself may be down or blocking requests. Try a different public RPC from the quick-select buttons.</li>
-                    <li><strong>403 Forbidden Errors:</strong> Some CORS proxies may be temporarily blocking requests. The system automatically switches to the next available proxy. Wait 5 minutes for blacklisted proxies to reset, or click "Reset" in CORS Proxy Status.</li>
-                    <li><strong>Error -32602 (Invalid Argument):</strong> Block number format issue - should now be fixed automatically. Try restarting the scan.</li>
-                    <li><strong>Connection Timeout:</strong> RPC endpoint may be slow or rate-limiting requests. Try a different provider like Ankr or PublicNode.</li>
-                    <li><strong>No Transactions Found:</strong> Recent blocks may have few transactions. Try older block ranges (e.g., 19000000-19000100).</li>
-                    <li><strong>HTTP 429 Errors:</strong> Rate limit exceeded. Reduce "Blocks Per Scan" or use a paid RPC provider.</li>
-                    <li><strong>Private RPC (Google Cloud) 403:</strong> Check API key is correct and has Blockchain Node Engine API enabled. Verify project ID and location match your configuration.</li>
-                    <li><strong>Continuous Scan Not Working:</strong> Make sure "Enable Continuous Scanning" is toggled ON before clicking "Start Auto".</li>
-                    <li><strong>Many Consecutive Errors:</strong> The scanner will automatically retry with exponential backoff. Check your RPC endpoint health.</li>
-                  </ul>
-                </div>
-
-                <Separator />
-
-                <div>
-                  <h3 className="font-semibold mb-2">CORS Proxy Redundancy</h3>
-                  <p className="text-muted-foreground mb-2">
-                    All RPC requests automatically route through CORS proxies to bypass browser restrictions. The system includes 7 different proxy services for maximum redundancy:
-                  </p>
-                  <ul className="list-disc list-inside space-y-1 text-muted-foreground">
-                    <li><strong>Direct Connection:</strong> Always tries direct connection first (fastest if CORS is configured)</li>
-                    <li><strong>cors-proxy.htmldriven.com:</strong> Primary proxy - reliable for API requests</li>
-                    <li><strong>api.codetabs.com:</strong> Free proxy with excellent uptime</li>
-                    <li><strong>proxy.cors.sh:</strong> Modern proxy with simple interface</li>
-                    <li><strong>corsproxy.io:</strong> Fast proxy with good reliability</li>
-                    <li><strong>api.allorigins.win:</strong> Alternative service</li>
-                    <li><strong>yacdn.org:</strong> CDN-based proxy</li>
-                    <li><strong>cors-anywhere.herokuapp:</strong> Open-source fallback</li>
-                  </ul>
-                  <p className="text-muted-foreground mt-2">
-                    <strong>Automatic Failover:</strong> System tries direct connection first, then cycles through proxies. 
-                    If a proxy fails 3 times, it's blacklisted for 5 minutes while the system uses the next available proxy. 
-                    You can monitor proxy health and reset failures in the CORS Proxy Status panel on the Scanner tab.
-                  </p>
-                </div>
-              </div>
-            </Card>
-
-            <Card className="p-6 bg-gradient-to-br from-card/90 to-card/70 backdrop-blur-sm border-border/60 shadow-lg">
-              <h2 className="text-xl font-bold mb-6 flex items-center gap-2">
-                <span className="w-1 h-6 bg-warning rounded-full"></span>
-                ML Pattern Prediction
-              </h2>
-              <div className="space-y-4 text-sm leading-relaxed">
-                <p className="text-foreground/90">
-                  The ML Pattern Prediction system uses machine learning to forecast which unscanned blocks are most 
-                  likely to contain cryptographic vulnerabilities. By analyzing historical scan data, it identifies 
-                  patterns and prioritizes high-risk blocks for efficient scanning.
-                </p>
-                
-                <Separator />
-                
-                <div>
-                  <h3 className="font-semibold mb-2">How It Works</h3>
-                  <ul className="list-disc list-inside space-y-1 text-muted-foreground">
-                    <li><strong>Training:</strong> Learns from your historical scan results and detected vulnerabilities</li>
-                    <li><strong>Feature Extraction:</strong> Analyzes temporal patterns, address behavior, and volume anomalies</li>
-                    <li><strong>Confidence Scoring:</strong> Assigns priority levels (Critical/High/Medium/Low) to each block</li>
-                    <li><strong>AI Enhancement:</strong> Optionally uses GPT-4o-mini for improved predictions and reasoning</li>
-                    <li><strong>Vulnerability Forecasting:</strong> Predicts specific vulnerability types for each block</li>
-                  </ul>
-                </div>
-
-                <Separator />
-
-                <div>
-                  <h3 className="font-semibold mb-2">Feature Weights</h3>
-                  <ul className="list-disc list-inside space-y-1 text-muted-foreground">
-                    <li><strong>Temporal Pattern (25%):</strong> Signature activity trends and growth rates</li>
-                    <li><strong>Block Density (20%):</strong> Transaction volume in blocks</li>
-                    <li><strong>Address Frequency (20%):</strong> Concentration of activity in specific addresses</li>
-                    <li><strong>Volume Anomaly (15%):</strong> Unusual activity spikes</li>
-                    <li><strong>Cluster Proximity (10%):</strong> Distance to known pattern clusters</li>
-                    <li><strong>Weekday Pattern (10%):</strong> Temporal correlations with block hashing</li>
-                  </ul>
-                </div>
-
-                <Separator />
-
-                <div>
-                  <h3 className="font-semibold mb-2">Usage Guide</h3>
-                  <div className="space-y-2 text-muted-foreground">
-                    <p><strong>1. Gather Training Data:</strong> Scan blocks to provide historical data</p>
-                    <p><strong>2. Configure Range:</strong> Enter target block range (max 500 blocks)</p>
-                    <p><strong>3. Generate Predictions:</strong> Click "Generate ML Predictions"</p>
-                    <p><strong>4. Review Results:</strong> Check confidence scores and reasoning</p>
-                    <p><strong>5. Scan Priorities:</strong> Focus on Critical/High priority blocks</p>
-                    <p><strong>6. Validate:</strong> Scan suggested blocks to verify predictions</p>
-                    <p><strong>7. Iterate:</strong> Add new data to improve model accuracy</p>
-                  </div>
-                </div>
-
-                <Separator />
-
-                <div>
-                  <h3 className="font-semibold mb-2">Best Practices</h3>
-                  <ul className="list-disc list-inside space-y-1 text-muted-foreground">
-                    <li>Scan diverse block ranges for better training data</li>
-                    <li>Run Batch Analysis to detect clusters before predicting</li>
-                    <li>Start with high-priority predictions (Critical/High)</li>
-                    <li>Validate predictions by scanning suggested blocks</li>
-                    <li>More training data = higher accuracy</li>
-                  </ul>
-                </div>
-              </div>
-            </Card>
-
-            <Card className="p-6 bg-gradient-to-br from-card/90 to-card/70 backdrop-blur-sm border-border/60 shadow-lg">
-              <h2 className="text-xl font-bold mb-6 flex items-center gap-2">
-                <span className="w-1 h-6 bg-primary rounded-full"></span>
-                Full Automation Workflow
-              </h2>
-              <div className="space-y-4 text-sm leading-relaxed">
-                <p className="text-foreground/90">
-                  The <strong className="text-accent">Automation Engine</strong> provides a fully automated workflow that continuously scans 
-                  blockchain RPC endpoints, detects vulnerabilities, executes attacks, and learns optimal configurations.
-                </p>
-                
-                <Separator />
-                
-                <div>
-                  <h3 className="font-semibold mb-2">Two Modes of Operation</h3>
-                  <ul className="list-disc list-inside space-y-1 text-muted-foreground">
-                    <li><strong>Run Once:</strong> Execute a single workflow cycle (scan → analyze → attack → learn)</li>
-                    <li><strong>Continuous Mode:</strong> Enable "Continuous Scanning" and click "Start Auto" to run indefinitely at set intervals</li>
-                  </ul>
-                </div>
-
-                <Separator />
-
-                <div>
-                  <h3 className="font-semibold mb-2">Quick Setup</h3>
-                  <div className="space-y-2 text-muted-foreground">
-                    <p>1. Configure your RPC endpoint (supports public and private nodes)</p>
-                    <p>2. Set the starting block number (default: 21000000)</p>
-                    <p>3. Adjust blocks per scan (default: 10, larger = slower but more comprehensive)</p>
-                    <p>4. Enable features: Auto Analysis, Auto Attack, Auto Learning</p>
-                    <p>5. Click "Run Once" to test, or enable "Continuous Scanning" and "Start Auto"</p>
-                  </div>
-                </div>
-
-                <Separator />
-
-                <div>
-                  <h3 className="font-semibold mb-2">What It Does</h3>
-                  <ul className="list-disc list-inside space-y-1 text-muted-foreground">
-                    <li><strong>Scanning:</strong> Fetches blocks from RPC and analyzes ECDSA signatures</li>
-                    <li><strong>Analysis:</strong> Detects patterns across multiple signatures (batch analysis)</li>
-                    <li><strong>Prediction:</strong> Uses ML to predict which future blocks contain vulnerabilities</li>
-                    <li><strong>Attacking:</strong> Automatically executes LLL/BKZ attacks on detected weaknesses</li>
-                    <li><strong>Learning:</strong> Identifies optimal parameters (delta, algorithm, block size) for future attacks</li>
-                  </ul>
-                </div>
-
-                <Separator />
-
-                <div>
-                  <h3 className="font-semibold mb-2">Monitoring Progress</h3>
-                  <p className="text-muted-foreground mb-2">
-                    Watch the real-time metrics and activity history to see:
-                  </p>
-                  <ul className="list-disc list-inside space-y-1 text-muted-foreground">
-                    <li>Current phase (scanning, analyzing, attacking, learning)</li>
-                    <li>Block ranges being scanned</li>
-                    <li>Total blocks scanned and weaknesses found</li>
-                    <li>Attack execution success rate</li>
-                    <li>Learned patterns with optimal configurations</li>
-                  </ul>
-                </div>
-
-                <Separator />
-
-                <div>
-                  <h3 className="font-semibold mb-2">Advanced Configuration</h3>
-                  <ul className="list-disc list-inside space-y-1 text-muted-foreground">
-                    <li><strong>Priority Threshold:</strong> Only attack vulnerabilities above this severity</li>
-                    <li><strong>Max Concurrent Attacks:</strong> Run multiple attacks in parallel (1-10)</li>
-                    <li><strong>Scan Interval:</strong> Time between automatic scans in continuous mode</li>
-                  </ul>
-                </div>
-              </div>
-            </Card>
-
-            <Card className="p-6 bg-gradient-to-br from-primary/10 to-accent/10 backdrop-blur-sm border-primary/30 shadow-lg">
-              <h2 className="text-xl font-bold mb-6 flex items-center gap-2">
-                <Lightbulb size={24} weight="duotone" className="text-primary" />
-                Quick Start Guide
-              </h2>
-              <div className="space-y-4 text-sm">
-                <div className="flex gap-4 p-4 rounded-lg bg-card/50 border border-border/40 hover:border-primary/40 transition-colors">
-                  <div className="flex-shrink-0 w-8 h-8 rounded-full bg-gradient-to-br from-primary to-accent text-primary-foreground flex items-center justify-center text-sm font-bold shadow-lg">
-                    1
-                  </div>
-                  <div>
-                    <strong className="text-foreground block mb-1">Test Your Setup</strong>
-                    <span className="text-muted-foreground">Use Range Tester to validate RPC connectivity and automation across multiple block ranges</span>
-                  </div>
-                </div>
-                <div className="flex gap-4 p-4 rounded-lg bg-card/50 border border-border/40 hover:border-primary/40 transition-colors">
-                  <div className="flex-shrink-0 w-8 h-8 rounded-full bg-gradient-to-br from-primary to-accent text-primary-foreground flex items-center justify-center text-sm font-bold shadow-lg">
-                    2
-                  </div>
-                  <div>
-                    <strong className="text-foreground block mb-1">Choose a Template</strong>
-                    <span className="text-muted-foreground">Click "Templates" to load a pre-configured attack example</span>
-                  </div>
-                </div>
-                <div className="flex gap-4 p-4 rounded-lg bg-card/50 border border-border/40 hover:border-primary/40 transition-colors">
-                  <div className="flex-shrink-0 w-8 h-8 rounded-full bg-gradient-to-br from-primary to-accent text-primary-foreground flex items-center justify-center text-sm font-bold shadow-lg">
-                    3
-                  </div>
-                  <div>
-                    <strong className="text-foreground block mb-1">Automated Workflow</strong>
-                    <span className="text-muted-foreground">Use the Automation Engine to continuously scan, analyze, and attack</span>
-                  </div>
-                </div>
-                <div className="flex gap-4 p-4 rounded-lg bg-card/50 border border-border/40 hover:border-primary/40 transition-colors">
-                  <div className="flex-shrink-0 w-8 h-8 rounded-full bg-gradient-to-br from-primary to-accent text-primary-foreground flex items-center justify-center text-sm font-bold shadow-lg">
-                    4
-                  </div>
-                  <div>
-                    <strong className="text-foreground block mb-1">Manual Scan</strong>
-                    <span className="text-muted-foreground">Use RPC Scanner to detect weak signatures, then run Batch Analysis to find cross-transaction patterns</span>
-                  </div>
-                </div>
-                <div className="flex gap-4 p-4 rounded-lg bg-card/50 border border-border/40 hover:border-primary/40 transition-colors">
-                  <div className="flex-shrink-0 w-8 h-8 rounded-full bg-gradient-to-br from-primary to-accent text-primary-foreground flex items-center justify-center text-sm font-bold shadow-lg">
-                    5
-                  </div>
-                  <div>
-                    <strong className="text-foreground block mb-1">ML Predictions</strong>
-                    <span className="text-muted-foreground">Use machine learning to forecast vulnerable blocks and prioritize scanning</span>
-                  </div>
-                </div>
-                <div className="flex gap-4 p-4 rounded-lg bg-card/50 border border-border/40 hover:border-primary/40 transition-colors">
-                  <div className="flex-shrink-0 w-8 h-8 rounded-full bg-gradient-to-br from-primary to-accent text-primary-foreground flex items-center justify-center text-sm font-bold shadow-lg">
-                    6
-                  </div>
-                  <div>
-                    <strong className="text-foreground block mb-1">Configure Attack</strong>
-                    <span className="text-muted-foreground">Select algorithm (LLL/BKZ), adjust parameters, and set block size if using BKZ</span>
-                  </div>
-                </div>
-                <div className="flex gap-4 p-4 rounded-lg bg-card/50 border border-border/40 hover:border-primary/40 transition-colors">
-                  <div className="flex-shrink-0 w-8 h-8 rounded-full bg-gradient-to-br from-primary to-accent text-primary-foreground flex items-center justify-center text-sm font-bold shadow-lg">
-                    7
-                  </div>
-                  <div>
-                    <strong className="text-foreground block mb-1">Run & Analyze</strong>
-                    <span className="text-muted-foreground">Execute attacks and view results, visualizations, and learned patterns</span>
-                  </div>
-                </div>
-              </div>
             </Card>
           </TabsContent>
         </Tabs>
