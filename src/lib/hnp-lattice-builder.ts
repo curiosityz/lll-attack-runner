@@ -22,7 +22,8 @@ export interface HNPLatticeResult {
 }
 
 export function buildHNPLattice(signatures: ParsedSignature[], knownBits: number = 4): HNPLatticeResult {
-  const numSigs = Math.min(signatures.length, 50)
+  const targetSigs = Math.max(40, Math.min(signatures.length, 80))
+  const numSigs = Math.min(signatures.length, targetSigs)
   const sigs = signatures.slice(0, numSigs)
   
   const scale = 10n ** 60n
@@ -74,13 +75,14 @@ export function buildHNPLattice(signatures: ParsedSignature[], knownBits: number
       signatureCount: numSigs,
       knownBits,
       latticeType: 'standard',
-      estimatedComplexity: estimateComplexity(numSigs, knownBits)
+      estimatedComplexity: estimateComplexity(dimension, knownBits)
     }
   }
 }
 
 export function buildEmbeddedHNPLattice(signatures: ParsedSignature[], knownBits: number = 4): HNPLatticeResult {
-  const numSigs = Math.min(signatures.length, 50)
+  const targetSigs = Math.max(35, Math.min(signatures.length, 60))
+  const numSigs = Math.min(signatures.length, targetSigs)
   const sigs = signatures.slice(0, numSigs)
   
   const scale = 10n ** 60n
@@ -145,7 +147,8 @@ export function buildEmbeddedHNPLattice(signatures: ParsedSignature[], knownBits
 }
 
 export function buildKannanEmbeddingLattice(signatures: ParsedSignature[], knownBits: number = 4): HNPLatticeResult {
-  const numSigs = Math.min(signatures.length, 45)
+  const targetSigs = Math.max(40, Math.min(signatures.length, 70))
+  const numSigs = Math.min(signatures.length, targetSigs)
   const sigs = signatures.slice(0, numSigs)
   
   const scale = 10n ** 60n
@@ -211,11 +214,17 @@ function estimateComplexity(dimension: number, knownBits: number): string {
 }
 
 export function selectOptimalLatticeType(signatureCount: number, knownBits: number): 'standard' | 'embedded' | 'kannan' {
-  if (signatureCount < 20) {
+  if (signatureCount < 10) {
     return 'standard'
-  } else if (signatureCount >= 20 && signatureCount < 35) {
-    return 'kannan'
-  } else {
-    return 'embedded'
   }
+  
+  if (signatureCount >= 40) {
+    return knownBits >= 4 ? 'embedded' : 'standard'
+  }
+  
+  if (signatureCount >= 20 && signatureCount < 40) {
+    return 'kannan'
+  }
+  
+  return 'standard'
 }

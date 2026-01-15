@@ -35,6 +35,9 @@ import { extractPrivateKeyFromAttack, PrivateKeyResult } from '@/lib/privateKeyE
 import { PrivateKeyDisplay } from '@/components/PrivateKeyDisplay'
 import { PrecisionIndicator, PrecisionWarning } from '@/components/PrecisionIndicator'
 import { LargeDimensionInfo } from '@/components/LargeDimensionInfo'
+import { DimensionGuidance } from '@/components/DimensionGuidance'
+import { SignatureRequirementInfo } from '@/components/SignatureRequirementInfo'
+import { SaturationWarning } from '@/components/SaturationWarning'
 import { buildHNPLattice, buildEmbeddedHNPLattice, buildKannanEmbeddingLattice, selectOptimalLatticeType } from '@/lib/hnp-lattice-builder'
 
 function formatMatrixForDisplay(basis: number[][]): string {
@@ -193,8 +196,13 @@ function App() {
       
     } else if (weakness.weakness === 'biased-k' || weakness.weakness === 'similar-k') {
       const relatedSigs = [weakness.signature, ...(weakness.relatedSignatures || [])]
-      const maxSigs = Math.min(relatedSigs.length, 50)
-      const sigs = relatedSigs.slice(0, maxSigs)
+      const sigs = relatedSigs.slice(0, Math.min(relatedSigs.length, 80))
+      
+      if (sigs.length < 40) {
+        toast.warning('Insufficient signatures for reliable attack', {
+          description: `Only ${sigs.length} signatures available. Need 40+ for high success rate. This attack will likely find noise, not the private key.`
+        })
+      }
       
       if (sigs.length >= 10) {
         const knownBits = 4
@@ -210,18 +218,28 @@ function App() {
         }
         
         basis = latticeResult.basis
-        name = `HNP ${latticeType.toUpperCase()} - ${weakness.weakness} (${sigs.length} sigs)`
+        name = `HNP ${latticeType.toUpperCase()} - ${weakness.weakness} (${sigs.length} sigs, ${latticeResult.dimension}D)`
         algo = 'bkz'
-        bSize = Math.min(30, Math.max(20, Math.ceil(latticeResult.dimension / 2)))
+        bSize = Math.min(30, Math.max(20, Math.ceil(latticeResult.dimension / 3)))
         
         setCurrentAttackSignatures(sigs)
         setCurrentWeaknessType(weakness.weakness)
         setIsNormalized(true)
         
-        toast.info('Multi-signature HNP attack', {
-          description: `Using ${sigs.length} signatures for stronger attack`
-        })
+        if (sigs.length >= 40) {
+          toast.success('High-dimensional attack configured', {
+            description: `${latticeResult.dimension}x${latticeResult.dimension} lattice built from ${sigs.length} signatures`
+          })
+        } else {
+          toast.info('Multi-signature HNP attack', {
+            description: `Using ${sigs.length} signatures • Need 40+ for best results`
+          })
+        }
       } else {
+        toast.error('Too few signatures for HNP attack', {
+          description: `Only ${sigs.length} signatures. Need at least 10 (ideally 40+) to extract private key.`
+        })
+        
         const scale = 10n ** 60n
         const n_scaled = Number(SECP256K1_N / scale)
         const r_scaled = Number(weakness.signature.r / scale)
@@ -241,7 +259,7 @@ function App() {
           [s_norm, 0, bound, 0],
           [0, 0, 0, bound]
         ]
-        name = `HNP Attack - ${weakness.weakness} - ${weakness.signature.hash.slice(0, 10)}`
+        name = `HNP Attack - ${weakness.weakness} - INSUFFICIENT DATA (${sigs.length} sigs)`
         algo = 'bkz'
         bSize = 15
         
@@ -352,9 +370,15 @@ function App() {
       setIsNormalized(true)
       
     } else if (pattern.type === 'biased-lsb' || pattern.type === 'biased-msb') {
-      const maxSigs = 50
+      const maxSigs = 80
       const sigs = pattern.signatures.slice(0, maxSigs)
       const actualSigCount = sigs.length
+      
+      if (actualSigCount < 40) {
+        toast.warning('Insufficient signatures for reliable HNP attack', {
+          description: `Only ${actualSigCount} signatures. Need 40+ for high success rate.`
+        })
+      }
       
       const knownBits = pattern.metadata?.bias ? Math.floor(pattern.metadata.bias * 10) : 4
       const latticeType = selectOptimalLatticeType(actualSigCount, knownBits)
@@ -369,17 +393,23 @@ function App() {
       }
       
       basis = latticeResult.basis
-      name = `HNP ${latticeType.toUpperCase()} - ${pattern.type.toUpperCase()} (${actualSigCount} sigs, ${latticeResult.dimension}x${latticeResult.dimension})`
+      name = `HNP ${latticeType.toUpperCase()} - ${pattern.type.toUpperCase()} (${actualSigCount} sigs, ${latticeResult.dimension}D)`
       algo = 'bkz'
-      bSize = Math.min(30, Math.max(20, Math.ceil(latticeResult.dimension / 2)))
+      bSize = Math.min(30, Math.max(20, Math.ceil(latticeResult.dimension / 3)))
       
       setCurrentAttackSignatures(sigs)
       setCurrentWeaknessType('biased-k')
       setIsNormalized(true)
       
-      toast.info('Advanced HNP lattice constructed', {
-        description: `${latticeType} embedding • ${actualSigCount} signatures • Est: ${latticeResult.metadata.estimatedComplexity}`
-      })
+      if (actualSigCount >= 40) {
+        toast.success('High-dimensional lattice constructed', {
+          description: `${latticeResult.dimension}x${latticeResult.dimension} • ${actualSigCount} sigs • ${latticeResult.metadata.estimatedComplexity}`
+        })
+      } else {
+        toast.info('Advanced HNP lattice constructed', {
+          description: `${latticeType} embedding • ${actualSigCount} signatures • Est: ${latticeResult.metadata.estimatedComplexity}`
+        })
+      }
       
     } else {
       const sigs = pattern.signatures.slice(0, 4)
@@ -644,6 +674,7 @@ function App() {
           </TabsContent>
 
           <TabsContent value="analyze" className="space-y-6">
+            <SignatureRequirementInfo currentCount={uploadedSignatures.length} />
             <AnalysisDisplay 
               result={analysisResult || {
                 totalAnalyzed: 0,
@@ -771,15 +802,40 @@ function App() {
                       if (basis && basis.length > 0) {
                         const rows = basis.length
                         const cols = basis[0]?.length || 0
-                        const isLarge = rows >= 30 || cols >= 30
+                        const dimension = rows
+                        
+                        let statusColor = "border-destructive/50 bg-destructive/10 text-destructive"
+                        let statusIcon = "❌"
+                        let statusText = "Insufficient dimension"
+                        
+                        if (dimension >= 40) {
+                          statusColor = "border-success/50 bg-success/10 text-success"
+                          statusIcon = "✅"
+                          statusText = "Excellent dimension for key extraction"
+                        } else if (dimension >= 20) {
+                          statusColor = "border-warning/50 bg-warning/10 text-warning"
+                          statusIcon = "⚠️"
+                          statusText = "Marginal dimension - may find noise"
+                        } else if (dimension >= 10) {
+                          statusColor = "border-destructive/50 bg-destructive/10 text-destructive"
+                          statusIcon = "⚠️"
+                          statusText = "Low dimension - likely to fail"
+                        }
+                        
                         return (
-                          <Alert className={isLarge ? "border-primary/50 bg-primary/10" : "border-muted/50 bg-muted/10"}>
-                            <AlertDescription className="text-xs flex items-center justify-between">
-                              <span>
-                                📐 Matrix Dimensions: <strong>{rows}×{cols}</strong>
-                                {isLarge && <span className="ml-2 text-primary">• Large-scale attack configured</span>}
-                              </span>
-                              {isLarge && <span className="text-primary font-semibold">40-50 sig attack</span>}
+                          <Alert className={statusColor}>
+                            <AlertDescription className="text-xs">
+                              <div className="flex items-center justify-between mb-1">
+                                <span>
+                                  {statusIcon} <strong>Matrix: {rows}×{cols}</strong>
+                                </span>
+                                <span className="font-semibold">
+                                  {dimension < 40 ? `Need ${40 - dimension} more sigs` : 'Ready for attack'}
+                                </span>
+                              </div>
+                              <div className="text-[10px] opacity-80">
+                                {statusText}
+                              </div>
                             </AlertDescription>
                           </Alert>
                         )
@@ -872,13 +928,26 @@ function App() {
               <div className="space-y-6">
                 {(() => {
                   const basis = parseBasisFromString(basisInput)
-                  if (basis && basis.length >= 30 && currentAttackSignatures.length >= 30) {
+                  if (basis && basis.length > 0) {
+                    const dimension = basis.length
+                    
                     return (
-                      <LargeDimensionInfo
-                        dimension={basis.length}
-                        signatureCount={currentAttackSignatures.length}
-                        estimatedTime={basis.length >= 45 ? 'High (10-60s)' : 'Medium (5-20s)'}
-                      />
+                      <>
+                        <DimensionGuidance
+                          currentDimension={dimension}
+                          signatureCount={currentAttackSignatures.length}
+                          attackType={attackType}
+                          isNormalized={isNormalized}
+                        />
+                        
+                        {dimension >= 30 && currentAttackSignatures.length >= 30 && (
+                          <LargeDimensionInfo
+                            dimension={dimension}
+                            signatureCount={currentAttackSignatures.length}
+                            estimatedTime={dimension >= 60 ? 'Very High (30-120s)' : dimension >= 45 ? 'High (10-60s)' : 'Medium (5-20s)'}
+                          />
+                        )}
+                      </>
                     )
                   }
                   return null
@@ -935,6 +1004,14 @@ function App() {
 
                     {privateKeyResult && (
                       <PrivateKeyDisplay result={privateKeyResult} />
+                    )}
+                    
+                    {result.solutionVector && result.blockSize && (
+                      <SaturationWarning
+                        dimension={result.reducedBasis.length}
+                        blockSize={result.blockSize}
+                        foundZeroInFirstPosition={result.solutionVector[0] === 0}
+                      />
                     )}
 
                     <VectorDisplay
