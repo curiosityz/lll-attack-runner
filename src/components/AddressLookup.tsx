@@ -12,6 +12,7 @@ import { MagnifyingGlass, Target, CheckCircle, Warning, Lightning, CurrencyBtc, 
 import { toast } from 'sonner'
 import { blockchainExplorer } from '@/lib/blockchain-explorer'
 import { analyzeSignatures } from '@/lib/signatureAnalyzer'
+import { buildHNPLattice, buildEmbeddedHNPLattice, buildKannanEmbeddingLattice, selectOptimalLatticeType } from '@/lib/hnp-lattice-builder'
 
 interface AddressData {
   address: string
@@ -220,9 +221,6 @@ export function AddressLookup({ onAttackGenerated }: AddressLookupProps) {
       }
 
       const knownBits = 4
-      const { buildHNPLattice, buildEmbeddedHNPLattice, buildKannanEmbeddingLattice, selectOptimalLatticeType } = 
-        require('@/lib/hnp-lattice-builder')
-      
       const latticeType = selectOptimalLatticeType(numSigs, knownBits)
       
       let latticeResult
