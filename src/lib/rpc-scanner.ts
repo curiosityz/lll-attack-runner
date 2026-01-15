@@ -1,3 +1,19 @@
+/**
+ * @deprecated RPC Scanner is deprecated and will be removed in a future version.
+ * 
+ * REASON FOR DEPRECATION:
+ * RPC scanning for signatures is redundant when signature data is already being ingested
+ * and stored from blockchain data sources like Blockchair TSV dumps. Additionally:
+ * - RPC scanning doesn't work reliably in practice due to CORS issues, rate limits
+ * - Most RPC endpoints don't expose the raw signature data (r, s values) needed
+ * - File-based ingestion (Blockchair TSV, JSON, CSV) provides complete signature data
+ * 
+ * USE INSTEAD:
+ * - Upload signature data via DataUpload or BlockchairUpload components
+ * - Use signatureAnalyzer.ts for analysis of ingested signatures
+ * - Use batch-analysis.ts for pattern detection on ParsedSignature arrays
+ */
+
 import { fetchJSONWithCORSProxy, corsProxyManager } from './cors-proxy'
 
 export interface RPCSignature {
@@ -12,6 +28,9 @@ export interface RPCSignature {
   timestamp?: number
 }
 
+/**
+ * @deprecated Use WeakSignature from signatureAnalyzer.ts instead
+ */
 export interface WeakSignature {
   signature: RPCSignature
   weakness: 'nonce-reuse' | 'low-s' | 'biased-k' | 'similar-k' | 'small-r'

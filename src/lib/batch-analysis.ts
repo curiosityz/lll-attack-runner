@@ -1,8 +1,52 @@
-import { RPCSignature, WeakSignature } from './rpc-scanner'
+import { ParsedSignature } from './dataParser'
+
+/**
+ * Signature type for batch analysis - uses bigint for r/s values
+ * This is an alias for ParsedSignature to maintain compatibility
+ */
+export type AnalysisSignature = ParsedSignature
+
+/**
+ * Legacy RPCSignature type for backward compatibility with string-based r/s values
+ * @deprecated Use ParsedSignature (AnalysisSignature) instead - r/s should be bigint
+ */
+export interface LegacyRPCSignature {
+  r: string
+  s: string
+  v?: number
+  hash: string
+  publicKey?: string
+  address: string
+  blockNumber: number
+  transactionHash: string
+  timestamp?: number
+}
+
+/**
+ * Convert a legacy RPC signature (string r/s) to ParsedSignature (bigint r/s)
+ */
+export function convertLegacySignature(sig: LegacyRPCSignature): ParsedSignature {
+  return {
+    r: hexToBigInt(sig.r),
+    s: hexToBigInt(sig.s),
+    v: sig.v || 0,
+    hash: sig.hash || sig.transactionHash,
+    address: sig.address,
+    blockNumber: sig.blockNumber,
+    timestamp: sig.timestamp
+  }
+}
+
+/**
+ * Convert an array of legacy signatures to ParsedSignature format
+ */
+export function convertLegacySignatures(sigs: LegacyRPCSignature[]): ParsedSignature[] {
+  return sigs.map(convertLegacySignature)
+}
 
 export interface SignatureCluster {
   id: string
-  signatures: RPCSignature[]
+  signatures: ParsedSignature[]
   pattern: 'nonce-reuse' | 'sequential-nonce' | 'biased-lsb' | 'biased-msb' | 'temporal-correlation' | 'address-clustering'
   severity: 'critical' | 'high' | 'medium' | 'low'
   description: string
@@ -81,9 +125,9 @@ function detectBitBias(values: bigint[]): { biased: boolean; bias: number; posit
   return { biased: false, bias: 0, position: 'none' }
 }
 
-function detectSequentialNonces(signatures: RPCSignature[]): SignatureCluster[] {
+function detectSequentialNonces(signatures: ParsedSignature[]): SignatureCluster[] {
   const clusters: SignatureCluster[] = []
-  const addressGroups = new Map<string, RPCSignature[]>()
+  const addressGroups = new Map<string, ParsedSignature[]>()
   
   for (const sig of signatures) {
     if (!addressGroups.has(sig.address)) {
@@ -96,12 +140,13 @@ function detectSequentialNonces(signatures: RPCSignature[]): SignatureCluster[] 
     if (sigs.length < 3) continue
     
     const sorted = [...sigs].sort((a, b) => {
-      const blockDiff = a.blockNumber - b.blockNumber
+      const blockDiff = (a.blockNumber || 0) - (b.blockNumber || 0)
       if (blockDiff !== 0) return blockDiff
-      return a.transactionHash.localeCompare(b.transactionHash)
+      return a.hash.localeCompare(b.hash)
     })
     
-    const rValues = sorted.map(s => hexToBigInt(s.r))
+    // r is already bigint in ParsedSignature
+    const rValues = sorted.map(s => s.r)
     let sequentialCount = 0
     
     for (let i = 0; i < rValues.length - 1; i++) {
@@ -138,15 +183,17 @@ function detectSequentialNonces(signatures: RPCSignature[]): SignatureCluster[] 
   return clusters
 }
 
-function detectNonceReuseClusters(signatures: RPCSignature[]): SignatureCluster[] {
+function detectNonceReuseClusters(signatures: ParsedSignature[]): SignatureCluster[] {
   const clusters: SignatureCluster[] = []
-  const rValueMap = new Map<string, RPCSignature[]>()
+  // Use string representation of bigint r for mapping
+  const rValueMap = new Map<string, ParsedSignature[]>()
   
   for (const sig of signatures) {
-    if (!rValueMap.has(sig.r)) {
-      rValueMap.set(sig.r, [])
+    const rStr = sig.r.toString()
+    if (!rValueMap.has(rStr)) {
+      rValueMap.set(rStr, [])
     }
-    rValueMap.get(sig.r)!.push(sig)
+    rValueMap.get(rStr)!.push(sig)
   }
   
   for (const [rValue, sigs] of rValueMap.entries()) {
@@ -178,9 +225,9 @@ function detectNonceReuseClusters(signatures: RPCSignature[]): SignatureCluster[
   return clusters
 }
 
-function detectBiasedLSB(signatures: RPCSignature[]): SignatureCluster[] {
+function detectBiasedLSB(signatures: ParsedSignature[]): SignatureCluster[] {
   const clusters: SignatureCluster[] = []
-  const addressGroups = new Map<string, RPCSignature[]>()
+  const addressGroups = new Map<string, ParsedSignature[]>()
   
   for (const sig of signatures) {
     if (!addressGroups.has(sig.address)) {
@@ -192,7 +239,8 @@ function detectBiasedLSB(signatures: RPCSignature[]): SignatureCluster[] {
   for (const [address, sigs] of addressGroups.entries()) {
     if (sigs.length < 5) continue
     
-    const rValues = sigs.map(s => hexToBigInt(s.r))
+    // r is already bigint in ParsedSignature
+    const rValues = sigs.map(s => s.r)
     const bias = detectBitBias(rValues)
     
     if (bias.biased && bias.position === 'lsb') {
@@ -216,9 +264,9 @@ function detectBiasedLSB(signatures: RPCSignature[]): SignatureCluster[] {
   return clusters
 }
 
-function detectBiasedMSB(signatures: RPCSignature[]): SignatureCluster[] {
+function detectBiasedMSB(signatures: ParsedSignature[]): SignatureCluster[] {
   const clusters: SignatureCluster[] = []
-  const addressGroups = new Map<string, RPCSignature[]>()
+  const addressGroups = new Map<string, ParsedSignature[]>()
   
   for (const sig of signatures) {
     if (!addressGroups.has(sig.address)) {
@@ -230,7 +278,8 @@ function detectBiasedMSB(signatures: RPCSignature[]): SignatureCluster[] {
   for (const [address, sigs] of addressGroups.entries()) {
     if (sigs.length < 5) continue
     
-    const rValues = sigs.map(s => hexToBigInt(s.r))
+    // r is already bigint in ParsedSignature
+    const rValues = sigs.map(s => s.r)
     const bias = detectBitBias(rValues)
     
     if (bias.biased && bias.position === 'msb') {
@@ -254,13 +303,13 @@ function detectBiasedMSB(signatures: RPCSignature[]): SignatureCluster[] {
   return clusters
 }
 
-function detectTemporalCorrelation(signatures: RPCSignature[]): SignatureCluster[] {
+function detectTemporalCorrelation(signatures: ParsedSignature[]): SignatureCluster[] {
   const clusters: SignatureCluster[] = []
   const sigsWithTime = signatures.filter(s => s.timestamp && s.timestamp > 0)
   
   if (sigsWithTime.length < 10) return clusters
   
-  const addressGroups = new Map<string, RPCSignature[]>()
+  const addressGroups = new Map<string, ParsedSignature[]>()
   for (const sig of sigsWithTime) {
     if (!addressGroups.has(sig.address)) {
       addressGroups.set(sig.address, [])
@@ -272,7 +321,8 @@ function detectTemporalCorrelation(signatures: RPCSignature[]): SignatureCluster
     if (sigs.length < 5) continue
     
     const sorted = [...sigs].sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0))
-    const rValues = sorted.map(s => hexToBigInt(s.r))
+    // r is already bigint in ParsedSignature
+    const rValues = sorted.map(s => s.r)
     
     let correlationCount = 0
     for (let i = 0; i < rValues.length - 1; i++) {
@@ -311,9 +361,9 @@ function detectTemporalCorrelation(signatures: RPCSignature[]): SignatureCluster
   return clusters
 }
 
-function detectAddressClustering(signatures: RPCSignature[]): SignatureCluster[] {
+function detectAddressClustering(signatures: ParsedSignature[]): SignatureCluster[] {
   const clusters: SignatureCluster[] = []
-  const addressMap = new Map<string, RPCSignature[]>()
+  const addressMap = new Map<string, ParsedSignature[]>()
   
   for (const sig of signatures) {
     if (!addressMap.has(sig.address)) {
@@ -327,7 +377,8 @@ function detectAddressClustering(signatures: RPCSignature[]): SignatureCluster[]
     .sort((a, b) => b[1].length - a[1].length)
   
   for (const [address, sigs] of highActivityAddresses) {
-    const rValues = sigs.map(s => hexToBigInt(s.r))
+    // r is already bigint in ParsedSignature
+    const rValues = sigs.map(s => s.r)
     const entropy = calculateEntropy(rValues)
     
     if (entropy < 0.7) {
@@ -352,13 +403,14 @@ function detectAddressClustering(signatures: RPCSignature[]): SignatureCluster[]
   return clusters
 }
 
-function analyzeStatisticalPatterns(signatures: RPCSignature[]): StatisticalPattern[] {
+function analyzeStatisticalPatterns(signatures: ParsedSignature[]): StatisticalPattern[] {
   const patterns: StatisticalPattern[] = []
   
   if (signatures.length < 10) return patterns
   
-  const rValues = signatures.map(s => hexToBigInt(s.r))
-  const sValues = signatures.map(s => hexToBigInt(s.s))
+  // r and s are already bigint in ParsedSignature
+  const rValues = signatures.map(s => s.r)
+  const sValues = signatures.map(s => s.s)
   
   const rEntropy = calculateEntropy(rValues)
   if (rEntropy < 0.8) {
@@ -419,8 +471,9 @@ function analyzeStatisticalPatterns(signatures: RPCSignature[]): StatisticalPatt
         const sigs1 = signatures.filter(s => s.address === addresses[i])
         const sigs2 = signatures.filter(s => s.address === addresses[j])
         
-        const r1 = sigs1.map(s => hexToBigInt(s.r))
-        const r2 = sigs2.map(s => hexToBigInt(s.r))
+        // r is already bigint in ParsedSignature
+        const r1 = sigs1.map(s => s.r)
+        const r2 = sigs2.map(s => s.r)
         
         let similarCount = 0
         for (const v1 of r1) {
@@ -505,7 +558,7 @@ function generateRecommendations(
   return recommendations
 }
 
-export function performBatchAnalysis(signatures: RPCSignature[]): BatchAnalysisResult {
+export function performBatchAnalysis(signatures: ParsedSignature[]): BatchAnalysisResult {
   const startTime = performance.now()
   
   const clusters: SignatureCluster[] = []
@@ -542,9 +595,10 @@ export function generateBatchAttackConfiguration(
     const sig1 = cluster.signatures[0]
     const sig2 = cluster.signatures[1]
     
-    const r = hexToBigInt(sig1.r)
-    const s1 = hexToBigInt(sig1.s)
-    const s2 = hexToBigInt(sig2.s)
+    // r and s are already bigint in ParsedSignature
+    const r = sig1.r
+    const s1 = sig1.s
+    const s2 = sig2.s
     
     const rNum = Number(r % 1000000n)
     const s1Num = Number(s1 % 1000000n)
@@ -568,8 +622,9 @@ export function generateBatchAttackConfiguration(
     const basis: number[][] = []
     
     for (let i = 0; i < n; i++) {
-      const r = hexToBigInt(cluster.signatures[i].r)
-      const s = hexToBigInt(cluster.signatures[i].s)
+      // r and s are already bigint in ParsedSignature
+      const r = cluster.signatures[i].r
+      const s = cluster.signatures[i].s
       
       const row = new Array(n + 2).fill(0)
       row[i] = 10000
@@ -602,8 +657,9 @@ export function generateBatchAttackConfiguration(
     const scale = 1000
     
     for (let i = 0; i < n; i++) {
-      const r = hexToBigInt(cluster.signatures[i].r)
-      const s = hexToBigInt(cluster.signatures[i].s)
+      // r and s are already bigint in ParsedSignature
+      const r = cluster.signatures[i].r
+      const s = cluster.signatures[i].s
       
       const row = new Array(n + 1).fill(0)
       row[i] = scale

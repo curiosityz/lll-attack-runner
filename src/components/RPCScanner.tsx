@@ -1,3 +1,19 @@
+/**
+ * @deprecated RPCScanner component is deprecated and will be removed in a future version.
+ * 
+ * REASON FOR DEPRECATION:
+ * RPC scanning for signatures is redundant when signature data is already being ingested
+ * from blockchain data sources like Blockchair TSV dumps. Additionally:
+ * - RPC scanning doesn't work reliably in practice due to CORS issues, rate limits
+ * - Most RPC endpoints don't expose the raw signature data (r, s values) needed
+ * - File-based ingestion (Blockchair TSV, JSON, CSV) provides complete signature data
+ * 
+ * USE INSTEAD:
+ * - DataUpload component for JSON/CSV signature files
+ * - BlockchairUpload component for Blockchair TSV dumps
+ * - AddressLookup for address-based analysis of ingested data
+ */
+
 import { useState } from 'react'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -12,7 +28,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { MagnifyingGlass, CheckCircle, XCircle, Warning, ChartLine, Brain } from '@phosphor-icons/react'
 import { toast } from 'sonner'
 import { scanRPCForWeakSignatures, generateLatticeFromWeakSignatures, type WeakSignature, type ScanResult } from '@/lib/rpc-scanner'
-import { performBatchAnalysis, generateBatchAttackConfiguration, type BatchAnalysisResult, type SignatureCluster } from '@/lib/batch-analysis'
+import { performBatchAnalysis, generateBatchAttackConfiguration, convertLegacySignatures, type BatchAnalysisResult, type SignatureCluster } from '@/lib/batch-analysis'
 import { generateAIPredictions, type MLPredictionResult } from '@/lib/ml-predictor'
 import { BatchAnalysisDisplay } from '@/components/BatchAnalysisDisplay'
 import { MLPredictionDisplay } from '@/components/MLPredictionDisplay'
@@ -25,6 +41,9 @@ interface RPCScannerProps {
   onAttackGenerated: (basis: number[][], delta: number, name: string, description: string, algorithm?: 'lll' | 'bkz', blockSize?: number) => void
 }
 
+/**
+ * @deprecated Use DataUpload or BlockchairUpload instead
+ */
 export function RPCScanner({ onAttackGenerated }: RPCScannerProps) {
   const [rpcUrl, setRpcUrl] = useState('https://rpc.ankr.com/eth')
   const [fromBlock, setFromBlock] = useState('21000000')
@@ -112,7 +131,9 @@ export function RPCScanner({ onAttackGenerated }: RPCScannerProps) {
         return
       }
 
-      const analysis = performBatchAnalysis(allSignatures)
+      // Convert legacy RPC signatures to ParsedSignature format for analysis
+      const parsedSignatures = convertLegacySignatures(allSignatures)
+      const analysis = performBatchAnalysis(parsedSignatures)
       setBatchAnalysis(analysis)
       
       toast.success(`Batch analysis complete: ${analysis.clusters.length} pattern cluster(s) detected`)
@@ -170,9 +191,37 @@ export function RPCScanner({ onAttackGenerated }: RPCScannerProps) {
     setMlPredictions(null)
 
     try {
+      // Convert legacy RPC signatures to ParsedSignature format
+      const parsedSignatures = convertLegacySignatures(scanResult.allSignatures)
+      
+      // Convert legacy WeakSignature to AnalyzerWeakSignature format
+      const analyzerWeakSigs = scanResult.weakSignatures.map(ws => ({
+        signature: {
+          r: BigInt(ws.signature.r.startsWith('0x') ? ws.signature.r : '0x' + ws.signature.r),
+          s: BigInt(ws.signature.s.startsWith('0x') ? ws.signature.s : '0x' + ws.signature.s),
+          v: ws.signature.v || 0,
+          hash: ws.signature.hash,
+          address: ws.signature.address,
+          blockNumber: ws.signature.blockNumber,
+          timestamp: ws.signature.timestamp
+        },
+        weakness: ws.weakness,
+        severity: ws.severity,
+        description: ws.description,
+        relatedSignatures: ws.relatedSignatures?.map(rs => ({
+          r: BigInt(rs.r.startsWith('0x') ? rs.r : '0x' + rs.r),
+          s: BigInt(rs.s.startsWith('0x') ? rs.s : '0x' + rs.s),
+          v: rs.v || 0,
+          hash: rs.hash,
+          address: rs.address,
+          blockNumber: rs.blockNumber,
+          timestamp: rs.timestamp
+        }))
+      }))
+      
       const predictions = await generateAIPredictions(
-        scanResult.allSignatures,
-        scanResult.weakSignatures,
+        parsedSignatures,
+        analyzerWeakSigs,
         batchAnalysis,
         { from, to }
       )
