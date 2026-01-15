@@ -34,6 +34,8 @@ import { ExplorerTransaction } from '@/lib/blockchain-explorer'
 import { extractPrivateKeyFromAttack, PrivateKeyResult } from '@/lib/privateKeyExtractor'
 import { PrivateKeyDisplay } from '@/components/PrivateKeyDisplay'
 import { PrecisionIndicator, PrecisionWarning } from '@/components/PrecisionIndicator'
+import { LargeDimensionInfo } from '@/components/LargeDimensionInfo'
+import { buildHNPLattice, buildEmbeddedHNPLattice, buildKannanEmbeddingLattice, selectOptimalLatticeType } from '@/lib/hnp-lattice-builder'
 
 function formatMatrixForDisplay(basis: number[][]): string {
   return basis.map(row => 
@@ -190,32 +192,63 @@ function App() {
       setIsNormalized(false)
       
     } else if (weakness.weakness === 'biased-k' || weakness.weakness === 'similar-k') {
-      const scale = 10n ** 60n
-      const n_scaled = Number(SECP256K1_N / scale)
-      const r_scaled = Number(weakness.signature.r / scale)
-      const s_scaled = Number(weakness.signature.s / scale)
+      const relatedSigs = [weakness.signature, ...(weakness.relatedSignatures || [])]
+      const maxSigs = Math.min(relatedSigs.length, 50)
+      const sigs = relatedSigs.slice(0, maxSigs)
       
-      const maxSafe = 2 ** 30
-      const normFactor = Math.max(n_scaled, r_scaled, s_scaled, 1) / maxSafe
-      
-      const n_norm = Math.floor(n_scaled / normFactor)
-      const r_norm = Math.floor(r_scaled / normFactor)
-      const s_norm = Math.floor(s_scaled / normFactor)
-      const bound = Math.floor(Math.sqrt(n_norm))
-      
-      basis = [
-        [n_norm, 0, 0, 0],
-        [r_norm, bound, 0, 0],
-        [s_norm, 0, bound, 0],
-        [0, 0, 0, bound]
-      ]
-      name = `HNP Attack - ${weakness.weakness} - ${weakness.signature.hash.slice(0, 10)}`
-      algo = 'bkz'
-      bSize = 15
-      
-      setCurrentAttackSignatures([weakness.signature])
-      setCurrentWeaknessType(weakness.weakness)
-      setIsNormalized(true)
+      if (sigs.length >= 10) {
+        const knownBits = 4
+        const latticeType = selectOptimalLatticeType(sigs.length, knownBits)
+        
+        let latticeResult
+        if (latticeType === 'embedded') {
+          latticeResult = buildEmbeddedHNPLattice(sigs, knownBits)
+        } else if (latticeType === 'kannan') {
+          latticeResult = buildKannanEmbeddingLattice(sigs, knownBits)
+        } else {
+          latticeResult = buildHNPLattice(sigs, knownBits)
+        }
+        
+        basis = latticeResult.basis
+        name = `HNP ${latticeType.toUpperCase()} - ${weakness.weakness} (${sigs.length} sigs)`
+        algo = 'bkz'
+        bSize = Math.min(30, Math.max(20, Math.ceil(latticeResult.dimension / 2)))
+        
+        setCurrentAttackSignatures(sigs)
+        setCurrentWeaknessType(weakness.weakness)
+        setIsNormalized(true)
+        
+        toast.info('Multi-signature HNP attack', {
+          description: `Using ${sigs.length} signatures for stronger attack`
+        })
+      } else {
+        const scale = 10n ** 60n
+        const n_scaled = Number(SECP256K1_N / scale)
+        const r_scaled = Number(weakness.signature.r / scale)
+        const s_scaled = Number(weakness.signature.s / scale)
+        
+        const maxSafe = 2 ** 30
+        const normFactor = Math.max(n_scaled, r_scaled, s_scaled, 1) / maxSafe
+        
+        const n_norm = Math.floor(n_scaled / normFactor)
+        const r_norm = Math.floor(r_scaled / normFactor)
+        const s_norm = Math.floor(s_scaled / normFactor)
+        const bound = Math.floor(Math.sqrt(n_norm))
+        
+        basis = [
+          [n_norm, 0, 0, 0],
+          [r_norm, bound, 0, 0],
+          [s_norm, 0, bound, 0],
+          [0, 0, 0, bound]
+        ]
+        name = `HNP Attack - ${weakness.weakness} - ${weakness.signature.hash.slice(0, 10)}`
+        algo = 'bkz'
+        bSize = 15
+        
+        setCurrentAttackSignatures([weakness.signature])
+        setCurrentWeaknessType(weakness.weakness)
+        setIsNormalized(true)
+      }
       
     } else if (weakness.weakness === 'small-r') {
       const r_num = Number(weakness.signature.r)
@@ -270,7 +303,7 @@ function App() {
     let bSize = 20
     
     if (pattern.type === 'nonce-reuse') {
-      const sigs = pattern.signatures.slice(0, 3)
+      const sigs = pattern.signatures.slice(0, 40)
       const scale = 100000n
       
       const rows = sigs.map((sig, idx) => {
@@ -285,60 +318,68 @@ function App() {
       basis = rows
       name = `Cluster Attack - Nonce Reuse (${sigs.length} sigs)`
       algo = 'bkz'
-      bSize = Math.min(sigs.length + 5, 25)
+      bSize = Math.min(sigs.length + 5, 30)
       
       setCurrentAttackSignatures(sigs)
       setCurrentWeaknessType('nonce-reuse')
       setIsNormalized(false)
       
     } else if (pattern.type === 'sequential') {
-      const sigs = pattern.signatures.slice(0, 5)
-      const scale = 1000000n
-      
-      basis = sigs.map((sig, idx) => {
-        const r = Number(sig.r / scale)
-        const s = Number(sig.s / scale)
-        return [r, s, idx * 1000]
-      })
-      name = `Sequential Pattern Attack (${sigs.length} sigs)`
-      algo = 'bkz'
-      bSize = 18
-      
-      setCurrentAttackSignatures(sigs)
-      setCurrentWeaknessType('sequential-k')
-      setIsNormalized(false)
-      
-    } else if (pattern.type === 'biased-lsb' || pattern.type === 'biased-msb') {
-      const sigs = pattern.signatures.slice(0, 8)
+      const sigs = pattern.signatures.slice(0, 45)
       const scale = 10n ** 60n
       const n_scaled = Number(SECP256K1_N / scale)
       
-      const rValues = sigs.map(sig => Number(sig.r / scale))
-      const sValues = sigs.map(sig => Number(sig.s / scale))
-      const maxVal = Math.max(n_scaled, ...rValues, ...sValues, 1)
-      const maxSafe = 2 ** 28
-      const normFactor = maxVal / maxSafe
-      
+      const maxSafe = 2 ** 26
+      const normFactor = n_scaled / maxSafe
       const n_norm = Math.floor(n_scaled / normFactor)
       const bound = Math.floor(Math.sqrt(n_norm))
       
       basis = sigs.map((sig, idx) => {
         const r = Math.floor(Number(sig.r / scale) / normFactor)
         const s = Math.floor(Number(sig.s / scale) / normFactor)
-        const row = new Array(sigs.length + 2).fill(0)
-        row[0] = n_norm
-        row[idx + 1] = r
-        row[idx + 2] = s
+        const row = new Array(sigs.length + 1).fill(0)
+        row[0] = r
+        row[idx + 1] = bound
         return row
       })
       
-      name = `Bias Attack - ${pattern.type.toUpperCase()} (${sigs.length} sigs)`
+      name = `Sequential Pattern Attack (${sigs.length} sigs)`
       algo = 'bkz'
-      bSize = 22
+      bSize = Math.min(25, Math.ceil(sigs.length / 2))
+      
+      setCurrentAttackSignatures(sigs)
+      setCurrentWeaknessType('sequential-k')
+      setIsNormalized(true)
+      
+    } else if (pattern.type === 'biased-lsb' || pattern.type === 'biased-msb') {
+      const maxSigs = 50
+      const sigs = pattern.signatures.slice(0, maxSigs)
+      const actualSigCount = sigs.length
+      
+      const knownBits = pattern.metadata?.bias ? Math.floor(pattern.metadata.bias * 10) : 4
+      const latticeType = selectOptimalLatticeType(actualSigCount, knownBits)
+      
+      let latticeResult
+      if (latticeType === 'embedded') {
+        latticeResult = buildEmbeddedHNPLattice(sigs, knownBits)
+      } else if (latticeType === 'kannan') {
+        latticeResult = buildKannanEmbeddingLattice(sigs, knownBits)
+      } else {
+        latticeResult = buildHNPLattice(sigs, knownBits)
+      }
+      
+      basis = latticeResult.basis
+      name = `HNP ${latticeType.toUpperCase()} - ${pattern.type.toUpperCase()} (${actualSigCount} sigs, ${latticeResult.dimension}x${latticeResult.dimension})`
+      algo = 'bkz'
+      bSize = Math.min(30, Math.max(20, Math.ceil(latticeResult.dimension / 2)))
       
       setCurrentAttackSignatures(sigs)
       setCurrentWeaknessType('biased-k')
       setIsNormalized(true)
+      
+      toast.info('Advanced HNP lattice constructed', {
+        description: `${latticeType} embedding • ${actualSigCount} signatures • Est: ${latticeResult.metadata.estimatedComplexity}`
+      })
       
     } else {
       const sigs = pattern.signatures.slice(0, 4)
@@ -696,12 +737,12 @@ function App() {
                           id="block-size"
                           type="number"
                           min="2"
-                          max="30"
+                          max="40"
                           value={blockSize}
                           onChange={(e) => setBlockSize(e.target.value)}
                         />
                         <p className="text-xs text-muted-foreground mt-1">
-                          Larger blocks = better reduction but slower (typical: 10-20)
+                          Larger blocks = better reduction but slower (typical: 10-30 for large matrices)
                         </p>
                       </div>
                     )}
@@ -724,6 +765,27 @@ function App() {
                       label="Lattice Basis Matrix"
                       placeholder="Enter basis vectors (one per line):"
                     />
+                    
+                    {(() => {
+                      const basis = parseBasisFromString(basisInput)
+                      if (basis && basis.length > 0) {
+                        const rows = basis.length
+                        const cols = basis[0]?.length || 0
+                        const isLarge = rows >= 30 || cols >= 30
+                        return (
+                          <Alert className={isLarge ? "border-primary/50 bg-primary/10" : "border-muted/50 bg-muted/10"}>
+                            <AlertDescription className="text-xs flex items-center justify-between">
+                              <span>
+                                📐 Matrix Dimensions: <strong>{rows}×{cols}</strong>
+                                {isLarge && <span className="ml-2 text-primary">• Large-scale attack configured</span>}
+                              </span>
+                              {isLarge && <span className="text-primary font-semibold">40-50 sig attack</span>}
+                            </AlertDescription>
+                          </Alert>
+                        )
+                      }
+                      return null
+                    })()}
                     
                     {isNormalized && (
                       <Alert className="border-accent/50 bg-accent/10">
@@ -808,6 +870,20 @@ function App() {
               </div>
 
               <div className="space-y-6">
+                {(() => {
+                  const basis = parseBasisFromString(basisInput)
+                  if (basis && basis.length >= 30 && currentAttackSignatures.length >= 30) {
+                    return (
+                      <LargeDimensionInfo
+                        dimension={basis.length}
+                        signatureCount={currentAttackSignatures.length}
+                        estimatedTime={basis.length >= 45 ? 'High (10-60s)' : 'Medium (5-20s)'}
+                      />
+                    )
+                  }
+                  return null
+                })()}
+                
                 {result ? (
                   <>
                     {result.usedHighPrecision !== undefined && (

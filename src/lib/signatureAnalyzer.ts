@@ -125,6 +125,7 @@ function detectNonceReuse(signatures: ParsedSignature[]): WeakSignature[] {
 
 function detectBiasedNonces(signatures: ParsedSignature[]): WeakSignature[] {
   const weaknesses: WeakSignature[] = []
+  const biasedSigs: ParsedSignature[] = []
   
   for (const sig of signatures) {
     const rBits = sig.r.toString(2)
@@ -134,26 +135,59 @@ function detectBiasedNonces(signatures: ParsedSignature[]): WeakSignature[] {
     const rBitLength = rBits.length
     const sBitLength = sBits.length
     
+    let isBiased = false
+    let biasDescription = ''
+    let biasMetadata: any = { bitLength: rBitLength, expectedBits }
+    
     if (rBitLength < expectedBits * 0.9) {
-      weaknesses.push({
-        signature: sig,
-        weakness: 'biased-k',
-        severity: 'high',
-        description: `Biased nonce detected: r-value has only ${rBitLength} bits (expected ~${expectedBits}). This suggests weak random number generation.`,
-        metadata: { bitLength: rBitLength, expectedBits }
-      })
+      isBiased = true
+      biasDescription = `Biased nonce detected: r-value has only ${rBitLength} bits (expected ~${expectedBits}). This suggests weak random number generation.`
+      biasMetadata.biasType = 'short-bits'
     }
     
     const leadingZeros = rBits.split('').findIndex(bit => bit === '1')
     if (leadingZeros > 10) {
-      weaknesses.push({
-        signature: sig,
-        weakness: 'biased-k',
-        severity: 'high',
-        description: `Nonce bias detected: r-value has ${leadingZeros} leading zero bits. This indicates a pattern that may be exploitable via HNP lattice attack.`,
-        metadata: { leadingZeros }
-      })
+      isBiased = true
+      biasDescription = `Nonce bias detected: r-value has ${leadingZeros} leading zero bits. This indicates a pattern that may be exploitable via HNP lattice attack.`
+      biasMetadata.leadingZeros = leadingZeros
+      biasMetadata.biasType = 'leading-zeros'
     }
+    
+    if (isBiased) {
+      biasedSigs.push(sig)
+    }
+  }
+  
+  for (let i = 0; i < biasedSigs.length; i++) {
+    const sig = biasedSigs[i]
+    const rBits = sig.r.toString(2)
+    const leadingZeros = rBits.split('').findIndex(bit => bit === '1')
+    const rBitLength = rBits.length
+    
+    const relatedBiased = biasedSigs.filter((s, idx) => {
+      if (idx === i) return false
+      const sBits = s.r.toString(2)
+      const sLeadingZeros = sBits.split('').findIndex(bit => bit === '1')
+      const sBitLength = sBits.length
+      
+      return Math.abs(sBitLength - rBitLength) < 20 || Math.abs(sLeadingZeros - leadingZeros) < 5
+    })
+    
+    const severity = relatedBiased.length >= 10 ? 'critical' : (relatedBiased.length >= 5 ? 'high' : 'high')
+    
+    weaknesses.push({
+      signature: sig,
+      weakness: 'biased-k',
+      severity,
+      description: `Biased nonce detected: r-value has ${rBitLength} bits with ${leadingZeros} leading zeros. ${relatedBiased.length > 0 ? `Found ${relatedBiased.length} similar biased signatures for multi-signature attack.` : 'HNP lattice attack may be possible.'}`,
+      relatedSignatures: relatedBiased.slice(0, 49),
+      metadata: { 
+        bitLength: rBitLength, 
+        expectedBits: 256, 
+        leadingZeros,
+        clusterSize: relatedBiased.length + 1
+      }
+    })
   }
   
   return weaknesses
@@ -296,25 +330,27 @@ function detectPatternClusters(signatures: ParsedSignature[]): PatternCluster[] 
   const rValues = signatures.map(s => s.r)
   const bitBias = calculateBitBias(rValues)
   
-  if (bitBias.lsb > 0.2) {
+  if (bitBias.lsb > 0.15 && signatures.length >= 10) {
+    const biasedSigs = signatures.slice(0, Math.min(50, signatures.length))
     clusters.push({
       type: 'biased-lsb',
-      signatures: signatures,
+      signatures: biasedSigs,
       confidence: Math.min(bitBias.lsb, 1.0),
-      severity: bitBias.lsb > 0.4 ? 'high' : 'medium',
-      description: `LSB bias detected: ${(bitBias.lsb * 100).toFixed(1)}% deviation from expected randomness`,
-      metadata: { bias: bitBias.lsb, bitPosition: 'lsb' }
+      severity: bitBias.lsb > 0.3 ? 'critical' : (bitBias.lsb > 0.2 ? 'high' : 'medium'),
+      description: `LSB bias detected across ${biasedSigs.length} signatures: ${(bitBias.lsb * 100).toFixed(1)}% deviation. Multi-signature HNP attack recommended.`,
+      metadata: { bias: bitBias.lsb, bitPosition: 'lsb', signatureCount: biasedSigs.length }
     })
   }
   
-  if (bitBias.msb > 0.2) {
+  if (bitBias.msb > 0.15 && signatures.length >= 10) {
+    const biasedSigs = signatures.slice(0, Math.min(50, signatures.length))
     clusters.push({
       type: 'biased-msb',
-      signatures: signatures,
+      signatures: biasedSigs,
       confidence: Math.min(bitBias.msb, 1.0),
-      severity: bitBias.msb > 0.4 ? 'high' : 'medium',
-      description: `MSB bias detected: ${(bitBias.msb * 100).toFixed(1)}% deviation from expected randomness`,
-      metadata: { bias: bitBias.msb, bitPosition: 'msb' }
+      severity: bitBias.msb > 0.3 ? 'critical' : (bitBias.msb > 0.2 ? 'high' : 'medium'),
+      description: `MSB bias detected across ${biasedSigs.length} signatures: ${(bitBias.msb * 100).toFixed(1)}% deviation. Multi-signature HNP attack recommended.`,
+      metadata: { bias: bitBias.msb, bitPosition: 'msb', signatureCount: biasedSigs.length }
     })
   }
   

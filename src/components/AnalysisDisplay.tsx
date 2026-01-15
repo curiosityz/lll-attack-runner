@@ -227,9 +227,21 @@ export function AnalysisDisplay({ result, onGenerateAttack, isAnalyzing }: Analy
                                 </Badge>
                               </div>
                               <p className="text-sm leading-relaxed">{weakness.description}</p>
-                              <div className="mt-2 text-xs font-mono text-muted-foreground">
+                              <div className="mt-2 text-xs font-mono text-muted-foreground space-y-1">
                                 <div>Tx: {weakness.signature.hash.slice(0, 20)}...</div>
                                 <div>Address: {weakness.signature.address.slice(0, 20)}...</div>
+                                {weakness.relatedSignatures && weakness.relatedSignatures.length > 0 && (
+                                  <div className="flex items-center gap-2 pt-1">
+                                    <Badge className="bg-primary/20 text-primary border-primary/30 text-xs">
+                                      +{weakness.relatedSignatures.length} related sigs
+                                    </Badge>
+                                    {weakness.relatedSignatures.length >= 30 && (
+                                      <Badge className="bg-accent/20 text-accent border-accent/30 text-xs">
+                                        Multi-sig attack ({weakness.relatedSignatures.length + 1} total)
+                                      </Badge>
+                                    )}
+                                  </div>
+                                )}
                               </div>
                             </div>
                             <Button
@@ -281,8 +293,20 @@ export function AnalysisDisplay({ result, onGenerateAttack, isAnalyzing }: Analy
                                 </Badge>
                               </div>
                               <p className="text-sm leading-relaxed mb-2">{pattern.description}</p>
-                              <div className="text-xs text-muted-foreground">
-                                {pattern.signatures.length} signatures in cluster
+                              <div className="flex items-center gap-2 text-xs">
+                                <span className="text-muted-foreground">
+                                  {pattern.signatures.length} signatures in cluster
+                                </span>
+                                {pattern.signatures.length >= 30 && (
+                                  <Badge className="bg-primary/20 text-primary border-primary/30">
+                                    Large-scale ({pattern.signatures.length} sigs)
+                                  </Badge>
+                                )}
+                                {pattern.signatures.length >= 40 && (
+                                  <Badge className="bg-accent/20 text-accent border-accent/30">
+                                    40-50 sig attack ready
+                                  </Badge>
+                                )}
                               </div>
                             </div>
                             <Button
