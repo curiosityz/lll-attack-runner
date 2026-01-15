@@ -41,12 +41,10 @@ import { DimensionGuidance } from '@/components/DimensionGuidance'
 import { SignatureRequirementInfo } from '@/components/SignatureRequirementInfo'
 import { SaturationWarning } from '@/components/SaturationWarning'
 import { CORSExplanation } from '@/components/CORSExplanation'
-import { buildHNPLattice, buildEmbeddedHNPLattice, buildKannanEmbeddingLattice, selectOptimalLatticeType } from '@/lib/hnp-lattice-builder'
+import { buildHNPLatticeWithDimensionSelection, BatchHNPLatticeResult } from '@/lib/hnp-lattice-builder'
 import { interpretBKZResult, InterpreterResult, isKeyFound, getRetryRecommendation } from '@/lib/result-interpreter'
 import { DimensionSelectorDisplay } from '@/components/DimensionSelectorDisplay'
-import { buildHNPLattice, buildEmbeddedHNPLattice, buildKannanEmbeddingLattice, selectOptimalLatticeType, buildHNPLatticeWithDimensionSelection, BatchHNPLatticeResult } from '@/lib/hnp-lattice-builder'
-import { selectDimension, DimensionSelectionResult, estimateBiasBits } from '@/lib/dimension-selector'
-import { buildHNPLattice, buildEmbeddedHNPLattice, buildKannanEmbeddingLattice, selectOptimalLatticeType, HNPLatticeResult } from '@/lib/hnp-lattice-builder'
+import { selectDimension, DimensionSelectionResult } from '@/lib/dimension-selector'
 
 /**
  * Converts a BigInt matrix to a number matrix for display and processing.
@@ -320,73 +318,20 @@ function App() {
       if (!batchResult.isValid) {
         toast.error('Insufficient Data', {
           description: batchResult.insufficientDataReason || 'Not enough signatures for attack'
-      if (sigs.length >= 10) {
-        const knownBits = 4
-        const latticeType = selectOptimalLatticeType(sigs.length, knownBits)
-        
-        let latticeResult: HNPLatticeResult
-        if (latticeType === 'embedded') {
-          latticeResult = buildEmbeddedHNPLattice(sigs, knownBits)
-        } else if (latticeType === 'kannan') {
-          latticeResult = buildKannanEmbeddingLattice(sigs, knownBits)
-        } else {
-          latticeResult = buildHNPLattice(sigs, knownBits)
-        }
-        
-        basis = convertBigIntBasisToNumber(latticeResult.basis)
-        name = `HNP ${latticeType.toUpperCase()} - ${weakness.weakness} (${sigs.length} sigs, ${latticeResult.dimension}D)`
-        algo = 'bkz'
-        bSize = Math.min(30, Math.max(20, Math.ceil(latticeResult.dimension / 3)))
-        
-        setCurrentAttackSignatures(sigs)
-        setCurrentWeaknessType(weakness.weakness)
-        setIsNormalized(true)
-        
-        if (sigs.length >= 40) {
-          toast.success('High-dimensional attack configured', {
-            description: `${latticeResult.dimension}x${latticeResult.dimension} lattice built from ${sigs.length} signatures`
-          })
-        } else {
-          toast.info('Multi-signature HNP attack', {
-            description: `Using ${sigs.length} signatures • Need 40+ for best results`
-          })
-        }
-      } else {
-        toast.error('Too few signatures for HNP attack', {
-          description: `Only ${sigs.length} signatures. Need at least 10 (ideally 40+) to extract private key.`
         })
         
-        // Still set up a basic attack for display, but warn user
-        const scale = 10n ** 60n
-        const n_scaled = Number(SECP256K1_N / scale)
-        const r_scaled = Number(weakness.signature.r / scale)
-        const s_scaled = Number(weakness.signature.s / scale)
-        
-        const maxSafe = 2 ** 30
-        const normFactor = Math.max(n_scaled, r_scaled, s_scaled, 1) / maxSafe
-        
-        const n_norm = Math.floor(n_scaled / normFactor)
-        const r_norm = Math.floor(r_scaled / normFactor)
-        const s_norm = Math.floor(s_scaled / normFactor)
-        const bound = Math.floor(Math.sqrt(n_norm))
-        
-        basis = [
-          [n_norm, 0, 0, 0],
-          [r_norm, bound, 0, 0],
-          [s_norm, 0, bound, 0],
-          [0, 0, 0, bound]
-        ]
-        name = `HNP Attack - ${weakness.weakness} - INSUFFICIENT DATA (${sigs.length} sigs)`
+        // Set up a minimal display for insufficient data case
+        basis = [[1]]
+        name = `HNP Attack - INSUFFICIENT DATA (${sigs.length} sigs, need ${batchResult.dimensionSelection.minRequiredRows})`
         algo = 'bkz'
-        bSize = 15
-        
-        setCurrentAttackSignatures([weakness.signature])
+        bSize = 10
+        setCurrentAttackSignatures(sigs)
         setCurrentWeaknessType(weakness.weakness)
         setIsNormalized(true)
       } else {
         // Use the first batch for display, attacks will run on all batches
         const firstBatch = batchResult.batches[0]
-        basis = firstBatch.basis
+        basis = convertBigIntBasisToNumber(firstBatch.basis)
         
         const dimension = batchResult.dimensionSelection.selectedDimension
         const biasBits = batchResult.dimensionSelection.expectedBiasBits
@@ -541,28 +486,8 @@ function App() {
       if (!batchResult.isValid) {
         toast.error('Insufficient Data', {
           description: batchResult.insufficientDataReason || 'Not enough signatures for attack'
-      let latticeResult: HNPLatticeResult
-      if (latticeType === 'embedded') {
-        latticeResult = buildEmbeddedHNPLattice(sigs, knownBits)
-      } else if (latticeType === 'kannan') {
-        latticeResult = buildKannanEmbeddingLattice(sigs, knownBits)
-      } else {
-        latticeResult = buildHNPLattice(sigs, knownBits)
-      }
-      
-      basis = convertBigIntBasisToNumber(latticeResult.basis)
-      name = `HNP ${latticeType.toUpperCase()} - ${pattern.type.toUpperCase()} (${actualSigCount} sigs, ${latticeResult.dimension}D)`
-      algo = 'bkz'
-      bSize = Math.min(30, Math.max(20, Math.ceil(latticeResult.dimension / 3)))
-      
-      setCurrentAttackSignatures(sigs)
-      setCurrentWeaknessType('biased-k')
-      setIsNormalized(true)
-      
-      if (actualSigCount >= 40) {
-        toast.success('High-dimensional lattice constructed', {
-          description: `${latticeResult.dimension}x${latticeResult.dimension} • ${actualSigCount} sigs • ${latticeResult.metadata.estimatedComplexity}`
         })
+        
         // Set up a minimal display
         basis = [[1]]
         name = `HNP Attack - INSUFFICIENT DATA (${sigs.length} sigs, need ${batchResult.dimensionSelection.minRequiredRows})`
@@ -573,7 +498,7 @@ function App() {
         setIsNormalized(true)
       } else {
         const firstBatch = batchResult.batches[0]
-        basis = firstBatch.basis
+        basis = convertBigIntBasisToNumber(firstBatch.basis)
         
         const dimension = batchResult.dimensionSelection.selectedDimension
         const biasBits = batchResult.dimensionSelection.expectedBiasBits
