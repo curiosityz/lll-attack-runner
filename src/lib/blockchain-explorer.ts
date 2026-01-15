@@ -1,3 +1,5 @@
+import { calculateBitcoinSighash } from './sighashCalculator'
+
 export interface ExplorerTransaction {
   hash: string
   from: string
@@ -294,11 +296,11 @@ export class BlockchainExplorer {
     }
   }
 
-  extractSignaturesFromBitcoinTx(tx: any): Array<{
+  async extractSignaturesFromBitcoinTx(tx: any): Promise<Array<{
     r: string
     s: string
     z: string
-  }> {
+  }>> {
     const signatures: Array<{ r: string, s: string, z: string }> = []
     
     try {
@@ -309,7 +311,8 @@ export class BlockchainExplorer {
       
       console.log(`Processing ${tx.inputs.length} inputs for tx ${tx.hash}`)
       
-      for (const input of tx.inputs) {
+      for (let inputIdx = 0; inputIdx < tx.inputs.length; inputIdx++) {
+        const input = tx.inputs[inputIdx]
         let scriptSig = ''
         
         console.log('Input data:', {
@@ -352,6 +355,7 @@ export class BlockchainExplorer {
         console.log(`Searching for DER signature in ${scriptHex.length} byte script`)
         
         let derSig = ''
+        let scriptPubKey = ''
         
         for (let offset = 0; offset < Math.min(scriptHex.length - 140, 400); offset += 2) {
           const byte = scriptHex.substring(offset, offset + 2)
@@ -366,18 +370,45 @@ export class BlockchainExplorer {
               
               const parsed = this.parseDERSignature(derSig)
               if (parsed && parsed.r && parsed.s) {
-                const txHash = tx.hash.startsWith('0x') ? tx.hash : '0x' + tx.hash
+                let zValue: string
+                
+                try {
+                  const rawTx = {
+                    version: tx.version || 1,
+                    vin: tx.inputs.map((inp: any) => ({
+                      txid: inp.prev_out?.tx_hash || inp.txid || '',
+                      vout: inp.prev_out?.n || inp.vout || 0,
+                      scriptSig: '',
+                      sequence: inp.sequence || 0xffffffff
+                    })),
+                    vout: tx.outputs?.map((out: any) => ({
+                      value: out.value || 0,
+                      scriptPubKey: out.script_hex || out.scriptPubKey || ''
+                    })) || [],
+                    locktime: tx.locktime || 0
+                  }
+                  
+                  if (input.prev_out?.script_hex) {
+                    scriptPubKey = input.prev_out.script_hex
+                  }
+                  
+                  zValue = await calculateBitcoinSighash(rawTx, inputIdx, scriptPubKey, 1)
+                  console.log('Calculated sighash from raw tx:', zValue.substring(0, 20))
+                } catch (e) {
+                  console.log('Could not calculate sighash, using tx hash:', e)
+                  zValue = tx.hash.startsWith('0x') ? tx.hash : '0x' + tx.hash
+                }
                 
                 console.log('Successfully parsed signature:', {
                   r: parsed.r.substring(0, 20),
                   s: parsed.s.substring(0, 20),
-                  z: txHash.substring(0, 20)
+                  z: zValue.substring(0, 20)
                 })
                 
                 signatures.push({
                   r: parsed.r,
                   s: parsed.s,
-                  z: txHash
+                  z: zValue
                 })
                 break
               }
@@ -390,18 +421,45 @@ export class BlockchainExplorer {
             
             const parsed = this.parseDERSignature(derSig)
             if (parsed && parsed.r && parsed.s) {
-              const txHash = tx.hash.startsWith('0x') ? tx.hash : '0x' + tx.hash
+              let zValue: string
+              
+              try {
+                const rawTx = {
+                  version: tx.version || 1,
+                  vin: tx.inputs.map((inp: any) => ({
+                    txid: inp.prev_out?.tx_hash || inp.txid || '',
+                    vout: inp.prev_out?.n || inp.vout || 0,
+                    scriptSig: '',
+                    sequence: inp.sequence || 0xffffffff
+                  })),
+                  vout: tx.outputs?.map((out: any) => ({
+                    value: out.value || 0,
+                    scriptPubKey: out.script_hex || out.scriptPubKey || ''
+                  })) || [],
+                  locktime: tx.locktime || 0
+                }
+                
+                if (input.prev_out?.script_hex) {
+                  scriptPubKey = input.prev_out.script_hex
+                }
+                
+                zValue = await calculateBitcoinSighash(rawTx, inputIdx, scriptPubKey, 1)
+                console.log('Calculated sighash from raw tx (method 2):', zValue.substring(0, 20))
+              } catch (e) {
+                console.log('Could not calculate sighash, using tx hash:', e)
+                zValue = tx.hash.startsWith('0x') ? tx.hash : '0x' + tx.hash
+              }
               
               console.log('Successfully parsed signature (method 2):', {
                 r: parsed.r.substring(0, 20),
                 s: parsed.s.substring(0, 20),
-                z: txHash.substring(0, 20)
+                z: zValue.substring(0, 20)
               })
               
               signatures.push({
                 r: parsed.r,
                 s: parsed.s,
-                z: txHash
+                z: zValue
               })
               break
             }
@@ -491,7 +549,7 @@ export class BlockchainExplorer {
       })
 
       if (chain === 'bitcoin' || chain === 'bitcoin-testnet' || address.match(/^[13][a-km-zA-HJ-NP-Z1-9]{25,34}$/)) {
-        const btcSigs = this.extractSignaturesFromBitcoinTx(tx)
+        const btcSigs = await this.extractSignaturesFromBitcoinTx(tx)
         console.log(`Extracted ${btcSigs.length} signatures from Bitcoin tx ${tx.hash}`)
         for (const sig of btcSigs) {
           signatures.push({

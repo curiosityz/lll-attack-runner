@@ -10,7 +10,7 @@ import { Alert, AlertDescription } from '@/components/ui/alert'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Separator } from '@/components/ui/separator'
 import { Checkbox } from '@/components/ui/checkbox'
-import { Play, Lightbulb, Calculator, ListBullets, ChartLine, UploadSimple, Database } from '@phosphor-icons/react'
+import { Play, Lightbulb, Calculator, ListBullets, ChartLine, UploadSimple, Database, Function } from '@phosphor-icons/react'
 import { toast } from 'sonner'
 import { AttackHistory, AttackType, AttackTemplate, LLLStep, AlgorithmType } from '@/lib/types'
 import { runLLL, parseBasisFromString } from '@/lib/lll'
@@ -26,6 +26,7 @@ import { DataUpload } from '@/components/DataUpload'
 import { AnalysisDisplay } from '@/components/AnalysisDisplay'
 import { AddressLookup } from '@/components/AddressLookup'
 import { BlockchainExplorerIntegration } from '@/components/BlockchainExplorerIntegration'
+import { SighashCalculator } from '@/components/SighashCalculator'
 import { ParsedSignature, ParseResult } from '@/lib/dataParser'
 import { analyzeSignatures, AnalysisResult, WeakSignature, PatternCluster } from '@/lib/signatureAnalyzer'
 import { ExplorerTransaction } from '@/lib/blockchain-explorer'
@@ -503,7 +504,7 @@ function App() {
         </header>
 
         <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
-          <TabsList className="grid w-full grid-cols-5 max-w-3xl h-auto p-1.5 bg-card/50 backdrop-blur-sm border border-border/60">
+          <TabsList className="grid w-full grid-cols-6 max-w-4xl h-auto p-1.5 bg-card/50 backdrop-blur-sm border border-border/60">
             <TabsTrigger value="upload" className="flex items-center justify-center gap-2 data-[state=active]:bg-primary/15 data-[state=active]:text-primary py-2.5 px-3">
               <UploadSimple size={18} weight="duotone" />
               <span className="hidden sm:inline">Upload</span>
@@ -511,6 +512,10 @@ function App() {
             <TabsTrigger value="analyze" className="flex items-center justify-center gap-2 data-[state=active]:bg-primary/15 data-[state=active]:text-primary py-2.5 px-3">
               <Database size={18} weight="duotone" />
               <span className="hidden sm:inline">Analyze</span>
+            </TabsTrigger>
+            <TabsTrigger value="sighash" className="flex items-center justify-center gap-2 data-[state=active]:bg-primary/15 data-[state=active]:text-primary py-2.5 px-3">
+              <Function size={18} weight="duotone" />
+              <span className="hidden sm:inline">Sighash</span>
             </TabsTrigger>
             <TabsTrigger value="attack" className="flex items-center justify-center gap-2 data-[state=active]:bg-primary/15 data-[state=active]:text-primary py-2.5 px-3">
               <Play size={18} weight="duotone" />
@@ -549,6 +554,10 @@ function App() {
               onGenerateAttack={handleGenerateAttack}
               isAnalyzing={isAnalyzing}
             />
+          </TabsContent>
+
+          <TabsContent value="sighash" className="space-y-6">
+            <SighashCalculator />
           </TabsContent>
 
           <TabsContent value="attack" className="space-y-6">

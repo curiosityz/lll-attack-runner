@@ -1,3 +1,5 @@
+import { extractSighashFromRawTx, calculateSighashFromComponents } from './sighashCalculator'
+
 export interface ParsedTransaction {
   hash: string
   from: string
@@ -19,6 +21,8 @@ export interface ParsedSignature {
   blockNumber?: number
   timestamp?: number
   txNonce?: number
+  sighash?: string
+  rawTx?: string
 }
 
 export interface ParseResult {
@@ -64,6 +68,15 @@ function parseJSONFormat(data: any): ParseResult {
       const v = record.v || record.signature?.v || record.sig?.v
       const hash = record.hash || record.transactionHash || record.txHash || record.tx_hash || `tx_${idx}`
       const from = record.from || record.sender || record.address || 'unknown'
+      const rawTx = record.raw || record.rawTransaction || record.rawTx
+      
+      const nonce = record.nonce
+      const gasPrice = record.gasPrice
+      const gasLimit = record.gasLimit || record.gas
+      const to = record.to
+      const value = record.value
+      const inputData = record.input || record.data
+      const chainId = record.chainId
 
       if (r && s) {
         const rBig = hexToBigInt(r)
@@ -71,6 +84,30 @@ function parseJSONFormat(data: any): ParseResult {
         const vNum = typeof v === 'number' ? v : parseInt(v?.toString() || '0', 10)
 
         if (rBig > 0n && sBig > 0n) {
+          let sighash: string | undefined
+          
+          if (rawTx) {
+            try {
+              extractSighashFromRawTx(rawTx).then(result => {
+                sighash = result.sighash
+              }).catch(() => {})
+            } catch {}
+          } else if (nonce !== undefined && gasPrice && gasLimit && to && value !== undefined) {
+            try {
+              calculateSighashFromComponents(
+                nonce,
+                gasPrice,
+                gasLimit,
+                to,
+                value,
+                inputData || '0x',
+                chainId
+              ).then(result => {
+                sighash = result
+              }).catch(() => {})
+            } catch {}
+          }
+          
           signatures.push({
             r: rBig,
             s: sBig,
@@ -79,7 +116,9 @@ function parseJSONFormat(data: any): ParseResult {
             address: from,
             blockNumber: record.blockNumber || record.block_number || record.block,
             timestamp: record.timestamp || record.time,
-            txNonce: record.nonce
+            txNonce: record.nonce,
+            sighash,
+            rawTx
           })
 
           transactions.push({
