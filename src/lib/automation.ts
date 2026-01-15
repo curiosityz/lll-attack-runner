@@ -98,7 +98,7 @@ export interface LearnedPattern {
 export class AutomationEngine {
   private config: AutomationConfig
   private state: AutomationState
-  private intervalId?: NodeJS.Timeout
+  private intervalId?: ReturnType<typeof setInterval>
   private onStateChange?: (state: AutomationState) => void
   private attackQueue: AttackQueueItem[] = []
   private runningAttacks: Set<string> = new Set()
