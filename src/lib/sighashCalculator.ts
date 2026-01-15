@@ -46,6 +46,9 @@ function bytesToHex(bytes: Uint8Array): string {
 }
 
 async function sha256(data: Uint8Array): Promise<Uint8Array> {
+  if (typeof crypto === 'undefined' || !crypto.subtle) {
+    throw new Error('Web Crypto API not available')
+  }
   const buffer = data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength)
   const hashBuffer = await crypto.subtle.digest('SHA-256', buffer as ArrayBuffer)
   return new Uint8Array(hashBuffer)

@@ -9,6 +9,18 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link href="/src/main.css" rel="stylesheet" />
+    <script>
+        // Polyfill for Node.js globals in browser environment
+        window.global = window.globalThis = window;
+        window.process = window.process || { env: {}, browser: true };
+        
+        // Stub require for libraries that check for its existence
+        if (typeof require === 'undefined') {
+            window.require = function(id) {
+                throw new Error('require("' + id + '") is not available in browser. Use ES6 imports.');
+            };
+        }
+    </script>
 </head>
 
 <body>
