@@ -160,8 +160,12 @@ export async function fetchWithCORSProxy(
     throw new Error('Target URL is empty')
   }
 
-  if (targetUrl.includes(':5000') || targetUrl.includes('probable-invention')) {
-    throw new Error('Local CORS proxy not available in browser environment')
+  if (targetUrl.includes(':5000') || 
+      targetUrl.includes('probable-invention') ||
+      targetUrl.includes('orange-couscous') ||
+      targetUrl.includes('fancy-river') ||
+      targetUrl.includes('.app.github.dev')) {
+    throw new Error('CORS_PROXY_NOT_AVAILABLE')
   }
 
   const shouldUseCorsProxy = !targetUrl.includes('localhost') && 
@@ -174,7 +178,7 @@ export async function fetchWithCORSProxy(
 
   try {
     const controller = new AbortController()
-    const timeoutId = setTimeout(() => controller.abort(), 5000)
+    const timeoutId = setTimeout(() => controller.abort(), 8000)
 
     const response = await fetch(targetUrl, {
       ...options,
@@ -193,8 +197,12 @@ export async function fetchWithCORSProxy(
   } catch (error) {
     const lastError = error instanceof Error ? error : new Error(String(error))
     
-    if (lastError.message.includes('CORS') || lastError.name === 'TypeError') {
-      throw new Error('CORS policy blocks this request. Blockchain explorers require a backend server. Please upload signature data files directly.')
+    if (lastError.message === 'CORS_PROXY_NOT_AVAILABLE') {
+      throw lastError
+    }
+    
+    if (lastError.message.includes('CORS') || lastError.name === 'TypeError' || lastError.name === 'AbortError') {
+      throw new Error('CORS_BLOCKED')
     }
     
     throw lastError
@@ -206,90 +214,100 @@ export async function fetchJSONWithCORSProxy(
   body: any,
   maxRetries: number = 2
 ): Promise<any> {
-  const response = await fetchWithCORSProxy(
-    targetUrl,
-    {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Accept': 'application/json'
+  try {
+    const response = await fetchWithCORSProxy(
+      targetUrl,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json'
+        },
+        body: JSON.stringify(body),
       },
-      body: JSON.stringify(body),
-    },
-    maxRetries
-  )
-
-  const contentType = response.headers.get('content-type') || ''
-  let responseText = ''
-  
-  try {
-    responseText = await response.text()
-  } catch (e) {
-    throw new Error('Failed to read response from RPC endpoint')
-  }
-  
-  if (!responseText || responseText.trim() === '') {
-    throw new Error('RPC endpoint returned empty response')
-  }
-  
-  if (responseText.includes('<!DOCTYPE') || responseText.includes('<html') || responseText.includes('<HTML')) {
-    throw new Error(
-      `RPC endpoint returned HTML instead of JSON (likely blocked or misconfigured). ` +
-      `Please verify: 1) URL is correct, 2) Endpoint requires auth (add API key), ` +
-      `3) Try a different RPC like https://rpc.ankr.com/eth`
+      maxRetries
     )
-  }
 
-  let data: any
-  try {
-    data = JSON.parse(responseText)
-  } catch (parseError) {
-    throw new Error(
-      `Invalid JSON response from RPC. ` +
-      `Response preview: ${responseText.slice(0, 150)}...`
-    )
-  }
-
-  if (data.error) {
-    const errorCode = data.error.code || 'UNKNOWN'
-    const errorMessage = data.error.message || JSON.stringify(data.error)
+    const contentType = response.headers.get('content-type') || ''
+    let responseText = ''
     
-    if (errorCode === -32602) {
-      throw new Error(
-        `RPC parameter error: ${errorMessage}. ` +
-        `This usually means invalid block number format or missing params.`
-      )
+    try {
+      responseText = await response.text()
+    } catch (e) {
+      throw new Error('Failed to read response from RPC endpoint')
     }
     
-    if (errorCode === -32000) {
-      throw new Error(
-        `RPC server error: ${errorMessage}. ` +
-        `The node may be rate limiting, out of sync, or rejecting the query.`
-      )
-    }
-
-    if (errorCode === -32601) {
-      throw new Error(
-        `Method not found: ${errorMessage}. ` +
-        `This RPC endpoint may not support the requested method.`
-      )
-    }
-
-    if (errorCode === -32700) {
-      throw new Error(
-        `Parse error: ${errorMessage}. ` +
-        `The RPC request JSON was malformed.`
-      )
+    if (!responseText || responseText.trim() === '') {
+      throw new Error('RPC endpoint returned empty response')
     }
     
-    throw new Error(`RPC Error ${errorCode}: ${errorMessage}`)
-  }
+    if (responseText.includes('<!DOCTYPE') || responseText.includes('<html') || responseText.includes('<HTML')) {
+      throw new Error(
+        `RPC endpoint returned HTML instead of JSON (likely blocked or misconfigured). ` +
+        `Please verify: 1) URL is correct, 2) Endpoint requires auth (add API key), ` +
+        `3) Try a different RPC like https://rpc.ankr.com/eth`
+      )
+    }
 
-  if (!data.result && data.result !== null && data.result !== 0) {
-    throw new Error(
-      `RPC response missing 'result' field. Response: ${JSON.stringify(data).slice(0, 150)}...`
-    )
-  }
+    let data: any
+    try {
+      data = JSON.parse(responseText)
+    } catch (parseError) {
+      throw new Error(
+        `Invalid JSON response from RPC. ` +
+        `Response preview: ${responseText.slice(0, 150)}...`
+      )
+    }
 
-  return data
+    if (data.error) {
+      const errorCode = data.error.code || 'UNKNOWN'
+      const errorMessage = data.error.message || JSON.stringify(data.error)
+      
+      if (errorCode === -32602) {
+        throw new Error(
+          `RPC parameter error: ${errorMessage}. ` +
+          `This usually means invalid block number format or missing params.`
+        )
+      }
+      
+      if (errorCode === -32000) {
+        throw new Error(
+          `RPC server error: ${errorMessage}. ` +
+          `The node may be rate limiting, out of sync, or rejecting the query.`
+        )
+      }
+
+      if (errorCode === -32601) {
+        throw new Error(
+          `Method not found: ${errorMessage}. ` +
+          `This RPC endpoint may not support the requested method.`
+        )
+      }
+
+      if (errorCode === -32700) {
+        throw new Error(
+          `Parse error: ${errorMessage}. ` +
+          `The RPC request JSON was malformed.`
+        )
+      }
+      
+      throw new Error(`RPC Error ${errorCode}: ${errorMessage}`)
+    }
+
+    if (!data.result && data.result !== null && data.result !== 0) {
+      throw new Error(
+        `RPC response missing 'result' field. Response: ${JSON.stringify(data).slice(0, 150)}...`
+      )
+    }
+
+    return data
+  } catch (error) {
+    const errMsg = error instanceof Error ? error.message : String(error)
+    
+    if (errMsg === 'CORS_PROXY_NOT_AVAILABLE' || errMsg === 'CORS_BLOCKED') {
+      throw new Error('CORS_BLOCKED')
+    }
+    
+    throw error
+  }
 }

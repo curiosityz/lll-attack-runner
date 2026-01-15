@@ -20,11 +20,13 @@ export function BlockchainStatus({ rpcUrl }: BlockchainStatusProps) {
   const [blocksSinceUpdate, setBlocksSinceUpdate] = useState(0)
 
   useEffect(() => {
-    let pollInterval: NodeJS.Timeout | null = null
     let isActive = true
 
     const fetchBlockchainData = async () => {
-      if (!isActive || !rpcUrl || rpcUrl.trim() === '') return
+      if (!isActive || !rpcUrl || rpcUrl.trim() === '') {
+        setStatus('disconnected')
+        return
+      }
 
       try {
         setStatus('connecting')
@@ -66,13 +68,15 @@ export function BlockchainStatus({ rpcUrl }: BlockchainStatusProps) {
       } catch (error) {
         if (isActive) {
           setStatus('error')
+          console.warn('[BlockchainStatus] Connection failed:', error)
         }
       }
     }
 
+    fetchBlockchainData()
+
     return () => {
       isActive = false
-      if (pollInterval) clearInterval(pollInterval)
     }
   }, [rpcUrl])
 

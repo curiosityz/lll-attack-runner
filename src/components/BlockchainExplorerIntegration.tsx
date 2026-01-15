@@ -105,9 +105,24 @@ export function BlockchainExplorerIntegration({
       })
     } catch (error) {
       console.error('Search error:', error)
-      toast.error('Failed to fetch data', {
-        description: error instanceof Error ? error.message : 'Unknown error occurred'
-      })
+      
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred'
+      const isCorsError = errorMessage.includes('CORS') || 
+                         errorMessage.includes('blocked') || 
+                         errorMessage === 'CORS_BLOCKED' ||
+                         errorMessage.includes('Failed to fetch')
+      
+      if (isCorsError) {
+        toast.error('Browser Security Restriction', {
+          description: 'Direct blockchain API access blocked by CORS. Upload signature files via Upload tab instead.',
+          duration: 6000
+        })
+      } else {
+        toast.error('Failed to fetch data', {
+          description: errorMessage,
+          duration: 5000
+        })
+      }
       setAddressData(null)
     } finally {
       setIsSearching(false)

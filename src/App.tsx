@@ -38,6 +38,7 @@ import { LargeDimensionInfo } from '@/components/LargeDimensionInfo'
 import { DimensionGuidance } from '@/components/DimensionGuidance'
 import { SignatureRequirementInfo } from '@/components/SignatureRequirementInfo'
 import { SaturationWarning } from '@/components/SaturationWarning'
+import { CORSExplanation } from '@/components/CORSExplanation'
 import { buildHNPLattice, buildEmbeddedHNPLattice, buildKannanEmbeddingLattice, selectOptimalLatticeType } from '@/lib/hnp-lattice-builder'
 
 function formatMatrixForDisplay(basis: number[][]): string {
@@ -695,8 +696,8 @@ function App() {
             <Alert className="border-accent/50 bg-accent/10">
               <Lightbulb size={18} className="text-accent" weight="duotone" />
               <AlertDescription className="text-sm">
-                <strong>Recommended Workflow:</strong> Upload signature data files directly for best results. 
-                Browser CORS policies may block direct blockchain API access.
+                <strong>⚠️ Browser Security Limitation:</strong> Direct blockchain API access is blocked by browser CORS policies. 
+                <strong> Solution:</strong> Upload signature data files (JSON/CSV) directly for full functionality.
               </AlertDescription>
             </Alert>
             <AddressLookup onAttackGenerated={handleAddressAttack} />

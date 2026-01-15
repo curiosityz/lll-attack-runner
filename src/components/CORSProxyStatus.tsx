@@ -45,11 +45,20 @@ export function CORSProxyStatus() {
   const currentProxy = corsProxyManager.getCurrentProxy()
 
   return (
-    <Card className="p-4 bg-card border-border">
+    <Card className="p-4 bg-card border-border opacity-60">
+      <Alert className="mb-3 bg-warning/10 border-warning/30">
+        <Info size={16} className="text-warning" weight="fill" />
+        <AlertDescription className="text-xs">
+          <strong>⚠️ CORS Proxies Unavailable:</strong> Third-party CORS proxies are unreliable and often blocked.
+          <br />
+          <strong className="text-accent">Recommended:</strong> Use file upload instead for 100% reliability.
+        </AlertDescription>
+      </Alert>
+
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-2">
-          <Lightning size={18} className="text-accent" weight="fill" />
-          <h3 className="text-sm font-semibold">CORS Proxy Status</h3>
+          <Lightning size={18} className="text-muted-foreground" weight="fill" />
+          <h3 className="text-sm font-semibold text-muted-foreground">CORS Proxy Status (Not Recommended)</h3>
         </div>
         <div className="flex items-center gap-2">
           <Button
@@ -63,15 +72,6 @@ export function CORSProxyStatus() {
           </Button>
         </div>
       </div>
-
-      <Alert className="mb-3 bg-accent/10 border-accent/20">
-        <Info size={16} className="text-accent" />
-        <AlertDescription className="text-xs">
-          <strong>Active Proxy:</strong> {currentProxy.name}
-          <br />
-          <span className="text-muted-foreground">{currentProxy.description}</span>
-        </AlertDescription>
-      </Alert>
 
       <ScrollArea className="h-[200px]">
         <div className="space-y-2">
@@ -151,7 +151,7 @@ export function CORSProxyStatus() {
           <li>Automatically rotates through proxies on failure</li>
           <li>Blacklists failing proxies for 5 minutes</li>
           <li>Prioritizes proxies with better success rates</li>
-          <li>All RPC requests use active proxy automatically</li>
+          <li>⚠️ Third-party proxies often fail or are rate-limited</li>
         </ul>
       </div>
     </Card>

@@ -150,7 +150,10 @@ export function AddressLookup({ onAttackGenerated }: AddressLookupProps) {
       console.error('Search error:', error)
       
       const errorMessage = error instanceof Error ? error.message : 'Unable to analyze address'
-      const isCorsError = errorMessage.includes('CORS') || errorMessage.includes('blocked')
+      const isCorsError = errorMessage.includes('CORS') || 
+                         errorMessage.includes('blocked') || 
+                         errorMessage === 'CORS_BLOCKED' ||
+                         errorMessage.includes('Failed to fetch')
       
       setAddressData({
         address,
@@ -158,9 +161,9 @@ export function AddressLookup({ onAttackGenerated }: AddressLookupProps) {
       })
       
       if (isCorsError) {
-        toast.error('CORS Blocked', {
-          description: 'Browser blocked the request. Please upload signature data files directly instead.',
-          duration: 5000
+        toast.error('Browser Security Restriction', {
+          description: 'Direct blockchain API access is blocked by CORS. Upload signature data files via the Upload tab instead.',
+          duration: 6000
         })
       } else {
         toast.error('Search failed', {
