@@ -165,8 +165,19 @@ export function AddressLookup({ onAttackGenerated }: AddressLookupProps) {
       return
     }
 
+    const parsedSignatures = addressData.signatures.map(sig => ({
+      r: BigInt(sig.r),
+      s: BigInt(sig.s),
+      v: 27,
+      hash: sig.z,
+      address: addressData.address,
+      timestamp: 0,
+      blockNumber: 0,
+      txNonce: 0
+    }))
+
     let basis: number[][]
-    const attackName = `${addressData.weaknessType?.toUpperCase()} - ${addressData.address.slice(0, 10)}...`
+    let attackName = `${addressData.weaknessType?.toUpperCase()} - ${addressData.address.slice(0, 10)}...`
 
     if (addressData.weaknessType === 'nonce-reuse' && addressData.signatures.length >= 2) {
       const sig1 = addressData.signatures[0]
@@ -195,29 +206,36 @@ export function AddressLookup({ onAttackGenerated }: AddressLookupProps) {
         description: 'Ready to recover private key'
       })
     } else {
-      const sig = addressData.signatures[0]
-      const r = BigInt(sig.r)
-      const s = BigInt(sig.s)
-      const z = BigInt(sig.z)
+      const numSigs = Math.min(parsedSignatures.length, 80)
+      const sigs = parsedSignatures.slice(0, numSigs)
+      
+      if (numSigs < 40) {
+        toast.warning(`Building lattice with ${numSigs} signatures`, {
+          description: `Need 40+ for high success rate. This may find noise.`
+        })
+      } else {
+        toast.success(`Building high-dimensional lattice with ${numSigs} signatures!`, {
+          description: `${numSigs}D lattice ready for private key extraction`
+        })
+      }
 
-      const scale = 100000000n
-      const r_scaled = Number(r / scale)
-      const s_scaled = Number(s / scale)
-      const z_scaled = Number(z / scale)
-
-      const n_secp256k1 = BigInt('0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141')
-      const n_scaled = Number(n_secp256k1 / scale)
-
-      basis = [
-        [n_scaled, 0, 0, 0],
-        [r_scaled, 10000, 0, 0],
-        [s_scaled, 0, 10000, 0],
-        [z_scaled, 0, 0, 10000]
-      ]
-
-      toast.success('Weak nonce attack configured!', {
-        description: 'Using HNP lattice reduction'
-      })
+      const knownBits = 4
+      const { buildHNPLattice, buildEmbeddedHNPLattice, buildKannanEmbeddingLattice, selectOptimalLatticeType } = 
+        require('@/lib/hnp-lattice-builder')
+      
+      const latticeType = selectOptimalLatticeType(numSigs, knownBits)
+      
+      let latticeResult
+      if (latticeType === 'embedded') {
+        latticeResult = buildEmbeddedHNPLattice(sigs, knownBits)
+      } else if (latticeType === 'kannan') {
+        latticeResult = buildKannanEmbeddingLattice(sigs, knownBits)
+      } else {
+        latticeResult = buildHNPLattice(sigs, knownBits)
+      }
+      
+      basis = latticeResult.basis
+      attackName = `HNP ${latticeType.toUpperCase()} - ${addressData.address.slice(0, 10)}... (${numSigs} sigs, ${latticeResult.dimension}D)`
     }
 
     onAttackGenerated(addressData.address, basis, attackName)

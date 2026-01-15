@@ -88,20 +88,43 @@ function App() {
   const [usePrecisionMode, setUsePrecisionMode] = useState(true)
 
   const handleAddressAttack = (address: string, basis: number[][], attackName: string) => {
+    const dimension = basis.length
+    const isLargeLattice = dimension >= 40
+    const isMediumLattice = dimension >= 20 && dimension < 40
+    
     setAttackType('signature-scan')
     setAttackName(attackName)
     setBasisInput(formatMatrixForDisplay(basis))
     setAlgorithm('bkz')
-    setBlockSize('20')
-    setDelta('0.99')
+    
+    if (isLargeLattice) {
+      setBlockSize('25')
+      setDelta('0.99')
+      setIsNormalized(true)
+      toast.success('High-dimensional attack loaded!', {
+        description: `${dimension}D lattice from real signatures - ready for key extraction`
+      })
+    } else if (isMediumLattice) {
+      setBlockSize('22')
+      setDelta('0.99')
+      setIsNormalized(true)
+      toast.warning('Medium lattice configured', {
+        description: `${dimension}D - may find patterns but need 40+ for reliable key extraction`
+      })
+    } else {
+      setBlockSize('20')
+      setDelta('0.99')
+      setIsNormalized(dimension >= 4)
+      toast.warning('Low-dimensional lattice', {
+        description: `Only ${dimension}D - will likely find noise. Need 40+ signatures.`
+      })
+    }
+    
     setResult(null)
     setVisualizationSteps([])
-    setIsNormalized(false)
+    setCurrentAttackSignatures([])
+    setCurrentWeaknessType('biased-k')
     setActiveTab('attack')
-    
-    toast.success('Attack vector loaded!', {
-      description: `Configured for ${address.slice(0, 10)}...`
-    })
   }
 
   const handleExplorerTransactions = (transactions: ExplorerTransaction[]) => {
