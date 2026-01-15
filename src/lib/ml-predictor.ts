@@ -1,4 +1,5 @@
-import { RPCSignature, WeakSignature } from './rpc-scanner'
+import { ParsedSignature } from './dataParser'
+import { WeakSignature } from './signatureAnalyzer'
 import { SignatureCluster, BatchAnalysisResult } from './batch-analysis'
 
 export interface MLPrediction {
@@ -67,7 +68,7 @@ function calculateBlockHash(block: number): bigint {
 }
 
 function extractTemporalFeatures(
-  signatures: RPCSignature[],
+  signatures: ParsedSignature[],
   currentBlock: number
 ): {
   blockDensity: number
@@ -78,7 +79,8 @@ function extractTemporalFeatures(
   const blockSignatures = new Map<number, number>()
   
   for (const sig of signatures) {
-    blockSignatures.set(sig.blockNumber, (blockSignatures.get(sig.blockNumber) || 0) + 1)
+    const block = sig.blockNumber || 0
+    blockSignatures.set(block, (blockSignatures.get(block) || 0) + 1)
   }
 
   const sortedBlocks = Array.from(blockSignatures.entries()).sort((a, b) => a[0] - b[0])
@@ -112,7 +114,7 @@ function extractTemporalFeatures(
 }
 
 function extractAddressFeatures(
-  signatures: RPCSignature[],
+  signatures: ParsedSignature[],
   clusters: SignatureCluster[]
 ): {
   highActivityAddresses: Set<string>
@@ -134,7 +136,7 @@ function extractAddressFeatures(
   const totalSignatures = signatures.length
   const addressConcentration = uniqueAddresses > 0 ? 1 - (uniqueAddresses / totalSignatures) : 0
 
-  const clusterBlocks = clusters.flatMap(c => c.signatures.map(s => s.blockNumber))
+  const clusterBlocks = clusters.flatMap(c => c.signatures.map(s => s.blockNumber || 0))
   const avgClusterBlock = clusterBlocks.length > 0
     ? clusterBlocks.reduce((a, b) => a + b, 0) / clusterBlocks.length
     : 0
@@ -161,18 +163,18 @@ function calculateVolumeAnomalyScore(
 }
 
 function trainModel(
-  historicalSignatures: RPCSignature[],
+  historicalSignatures: ParsedSignature[],
   weakSignatures: WeakSignature[],
   clusters: SignatureCluster[]
 ): MLModel {
-  const totalBlocks = new Set(historicalSignatures.map(s => s.blockNumber)).size
+  const totalBlocks = new Set(historicalSignatures.map(s => s.blockNumber || 0)).size
   const weakSignaturesFound = weakSignatures.length
   const patternsDetected = clusters.length
 
   const temporalFeatures = extractTemporalFeatures(historicalSignatures, 0)
   const addressFeatures = extractAddressFeatures(historicalSignatures, clusters)
 
-  const weakBlocks = new Set(weakSignatures.map(w => w.signature.blockNumber))
+  const weakBlocks = new Set(weakSignatures.map(w => w.signature.blockNumber || 0))
   const accuracy = totalBlocks > 0 ? weakBlocks.size / totalBlocks : 0
 
   const weights = {
@@ -204,28 +206,28 @@ function trainModel(
 function predictBlock(
   blockNumber: number,
   model: MLModel,
-  historicalSignatures: RPCSignature[],
+  historicalSignatures: ParsedSignature[],
   clusters: SignatureCluster[],
   weakSignatures: WeakSignature[]
 ): MLPrediction {
   const temporal = extractTemporalFeatures(historicalSignatures, blockNumber)
   const address = extractAddressFeatures(historicalSignatures, clusters)
 
-  const recentBlocks = Array.from(new Set(historicalSignatures.map(s => s.blockNumber)))
+  const recentBlocks = Array.from(new Set(historicalSignatures.map(s => s.blockNumber || 0)))
   const volumeAnomaly = calculateVolumeAnomalyScore(
     blockNumber,
     recentBlocks,
     temporal.blockDensity
   )
 
-  const weakBlocks = weakSignatures.map(w => w.signature.blockNumber)
+  const weakBlocks = weakSignatures.map(w => w.signature.blockNumber || 0)
   const proximityToKnownWeakness = weakBlocks.length > 0
     ? Math.exp(-Math.min(...weakBlocks.map(wb => Math.abs(wb - blockNumber))) / 500)
     : 0
 
   const clusterProximityScore = clusters.length > 0
     ? Math.exp(-Math.min(...clusters.map(c => {
-        const clusterBlocks = c.signatures.map(s => s.blockNumber)
+        const clusterBlocks = c.signatures.map(s => s.blockNumber || 0)
         const avgBlock = clusterBlocks.reduce((a, b) => a + b, 0) / clusterBlocks.length
         return Math.abs(avgBlock - blockNumber)
       })) / 1000)
@@ -434,7 +436,7 @@ function generateOptimalScanOrder(predictions: MLPrediction[]): number[] {
 }
 
 export function generateMLPredictions(
-  historicalSignatures: RPCSignature[],
+  historicalSignatures: ParsedSignature[],
   weakSignatures: WeakSignature[],
   batchAnalysis: BatchAnalysisResult | null,
   targetBlockRange: { from: number; to: number }
@@ -488,7 +490,7 @@ export function generateMLPredictions(
 }
 
 export async function generateAIPredictions(
-  historicalSignatures: RPCSignature[],
+  historicalSignatures: ParsedSignature[],
   weakSignatures: WeakSignature[],
   batchAnalysis: BatchAnalysisResult | null,
   targetBlockRange: { from: number; to: number }

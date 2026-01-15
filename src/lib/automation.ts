@@ -1,12 +1,19 @@
-import { scanRPCForWeakSignatures, type ScanResult } from './rpc-scanner'
 import { performBatchAnalysis, generateBatchAttackConfiguration, type BatchAnalysisResult, type SignatureCluster } from './batch-analysis'
 import { generateAIPredictions, type MLPredictionResult } from './ml-predictor'
+import { analyzeSignatures, type WeakSignature as AnalyzerWeakSignature, type AnalysisResult } from './signatureAnalyzer'
+import { type ParsedSignature } from './dataParser'
 import { runLLL } from './lll'
 import { runBKZ } from './bkz'
 import type { AttackHistory, AlgorithmType } from './types'
 
+/**
+ * Configuration for the automation engine.
+ * NOTE: RPC scanning has been removed as it was redundant with ingested signature data.
+ * Signatures should be provided via setSignatureData() from file uploads (Blockchair TSV, JSON, etc.)
+ */
 export interface AutomationConfig {
-  rpcUrl: string
+  /** @deprecated RPC URL is no longer used - signatures are ingested from files */
+  rpcUrl?: string
   enableAutoScan: boolean
   scanInterval: number
   autoAnalyze: boolean
@@ -15,6 +22,7 @@ export interface AutomationConfig {
   maxConcurrentAttacks: number
   priorityThreshold: 'critical' | 'high' | 'medium' | 'low'
   scanBatchSize: number
+  /** @deprecated Block scanning is no longer used - signatures are ingested from files */
   startBlock?: number
 }
 
@@ -66,12 +74,23 @@ export interface AttackQueueItem {
   algorithm: AlgorithmType
   blockSize?: number
   priority: number
-  source: 'rpc-scan' | 'batch-analysis' | 'ml-prediction' | 'manual'
+  source: 'ingested-data' | 'batch-analysis' | 'ml-prediction' | 'manual'
   metadata: any
 }
 
+/**
+ * Result of an analysis workflow on ingested signature data.
+ * NOTE: scanResult is deprecated - use analysisResult instead
+ */
 export interface WorkflowResult {
-  scanResult?: ScanResult
+  /** @deprecated Use analysisResult instead */
+  scanResult?: {
+    scanned: number
+    weakSignatures: AnalyzerWeakSignature[]
+    allSignatures: ParsedSignature[]
+  }
+  /** Analysis result from ingested signatures */
+  analysisResult?: AnalysisResult
   batchAnalysis?: BatchAnalysisResult
   mlPredictions?: MLPredictionResult
   attackResults: AttackHistory[]
@@ -102,6 +121,12 @@ export class AutomationEngine {
   private onStateChange?: (state: AutomationState) => void
   private attackQueue: AttackQueueItem[] = []
   private runningAttacks: Set<string> = new Set()
+  
+  /**
+   * Ingested signature data that will be analyzed.
+   * Set via setSignatureData() from file uploads (Blockchair TSV, JSON, CSV, etc.)
+   */
+  private ingestedSignatures: ParsedSignature[] = []
 
   constructor(config: AutomationConfig, onStateChange?: (state: AutomationState) => void) {
     this.config = config
@@ -117,6 +142,24 @@ export class AutomationEngine {
       queue: [],
       history: []
     }
+  }
+  
+  /**
+   * Set the signature data to be analyzed.
+   * This data should come from file uploads (Blockchair TSV, JSON, CSV, etc.)
+   * rather than RPC scanning which was removed due to being unreliable in practice.
+   */
+  setSignatureData(signatures: ParsedSignature[]) {
+    this.ingestedSignatures = signatures
+    console.log(`[Automation] Loaded ${signatures.length} signatures for analysis`)
+    this.addHistory('data-loaded', `Loaded ${signatures.length} signatures from ingested data`, true)
+  }
+  
+  /**
+   * Get the currently loaded signature count
+   */
+  getSignatureCount(): number {
+    return this.ingestedSignatures.length
   }
 
   private updateState(updates: Partial<AutomationState>) {
@@ -143,19 +186,23 @@ export class AutomationEngine {
     if (this.state.isRunning) return
 
     this.updateState({ isRunning: true, lastError: undefined })
-    this.addHistory('start', `Automation engine started - will scan blocks starting from ${this.config.startBlock || 21000000}`)
+    
+    const sigCount = this.ingestedSignatures.length
+    if (sigCount === 0) {
+      this.addHistory('start', 'Automation engine started - waiting for signature data to be loaded via file upload')
+    } else {
+      this.addHistory('start', `Automation engine started - ${sigCount} signatures loaded and ready for analysis`)
+    }
     
     console.log('[Automation] Engine started')
     console.log('[Automation] Config:', {
-      rpcUrl: this.config.rpcUrl,
-      startBlock: this.config.startBlock,
-      scanBatchSize: this.config.scanBatchSize,
+      signatureCount: sigCount,
       autoAnalyze: this.config.autoAnalyze,
       autoAttack: this.config.autoAttack,
       autoLearn: this.config.autoLearn
     })
 
-    if (this.config.enableAutoScan) {
+    if (this.config.enableAutoScan && sigCount > 0) {
       this.scheduleNextScan()
     }
   }
@@ -213,91 +260,106 @@ export class AutomationEngine {
     }
   }
 
-  async executeFullWorkflow(customRange?: { from: number; to: number }): Promise<WorkflowResult> {
+  /**
+   * Execute the full analysis workflow on ingested signature data.
+   * NOTE: RPC scanning has been removed - use setSignatureData() to provide signatures.
+   */
+  async executeFullWorkflow(_customRange?: { from: number; to: number }): Promise<WorkflowResult> {
     const result: WorkflowResult = {
       attackResults: [],
       learnedPatterns: []
     }
 
-    let currentBlock = customRange?.from || this.config.startBlock || 21000000
-    const endBlock = customRange?.to || currentBlock + this.config.scanBatchSize
+    const signatures = this.ingestedSignatures
+    const sigCount = signatures.length
+    
+    if (sigCount === 0) {
+      console.log('[Automation] No signatures loaded - please upload signature data first')
+      this.addHistory('no-data', 'No signature data loaded. Please upload Blockchair TSV, JSON, or CSV file with signatures.', false)
+      return result
+    }
 
-    console.log(`[Automation] Starting workflow - scanning blocks ${currentBlock} to ${endBlock}`)
+    console.log(`[Automation] Starting workflow - analyzing ${sigCount} ingested signatures`)
 
-    this.updateState({ currentPhase: 'scanning', progress: 0 })
+    this.updateState({ currentPhase: 'analyzing', progress: 0 })
     
     try {
-      console.log('[Automation] Calling scanRPCForWeakSignatures...')
-      result.scanResult = await scanRPCForWeakSignatures(
-        this.config.rpcUrl,
-        currentBlock,
-        endBlock,
-        (current, total) => {
-          this.updateState({ progress: (current / total) * 25 })
-        }
-      )
+      console.log('[Automation] Analyzing ingested signatures...')
+      
+      // Use the signatureAnalyzer to find weaknesses
+      result.analysisResult = analyzeSignatures(signatures)
+      
+      // Build scanResult-like structure for backward compatibility
+      result.scanResult = {
+        scanned: sigCount,
+        weakSignatures: result.analysisResult.weakSignatures,
+        allSignatures: signatures
+      }
 
-      console.log('[Automation] Scan complete:', {
-        scanned: result.scanResult.scanned,
-        weakSignatures: result.scanResult.weakSignatures.length,
-        allSignatures: result.scanResult.allSignatures.length
+      console.log('[Automation] Analysis complete:', {
+        analyzed: sigCount,
+        weakSignatures: result.analysisResult.weakSignatures.length,
+        patterns: result.analysisResult.patterns.length
       })
 
       this.updateState({
-        totalScanned: this.state.totalScanned + result.scanResult.scanned,
-        totalWeaknessesFound: this.state.totalWeaknessesFound + result.scanResult.weakSignatures.length
+        totalScanned: this.state.totalScanned + sigCount,
+        totalWeaknessesFound: this.state.totalWeaknessesFound + result.analysisResult.weakSignatures.length,
+        progress: 25
       })
 
-      if (!customRange) {
-        this.config.startBlock = endBlock + 1
-        console.log('[Automation] Updated startBlock to:', this.config.startBlock)
-      }
-
       const weaknessesByType: Record<string, number> = {}
-      result.scanResult.weakSignatures.forEach(sig => {
+      result.analysisResult.weakSignatures.forEach(sig => {
         weaknessesByType[sig.weakness] = (weaknessesByType[sig.weakness] || 0) + 1
       })
 
-      this.addHistory('scan-complete', `Scanned blocks ${currentBlock}-${endBlock}: ${result.scanResult.weakSignatures.length} weakness(es) found`, true, {
-        blocksScanned: { from: currentBlock, to: endBlock },
-        weaknessesFound: result.scanResult.weakSignatures.length,
+      this.addHistory('analysis-complete', `Analyzed ${sigCount} signatures: ${result.analysisResult.weakSignatures.length} weakness(es) found`, true, {
+        weaknessesFound: result.analysisResult.weakSignatures.length,
         weaknessesByType
       })
 
-      if (result.scanResult.weakSignatures.length === 0) {
-        console.log('[Automation] No weaknesses found, ending workflow')
+      if (result.analysisResult.weakSignatures.length === 0 && result.analysisResult.patterns.length === 0) {
+        console.log('[Automation] No weaknesses found in signatures')
         return result
       }
 
-      console.log('[Automation] Found weaknesses, continuing to analysis phase...')
+      console.log('[Automation] Found weaknesses, continuing to batch analysis phase...')
 
-      if (this.config.autoAnalyze && result.scanResult.allSignatures.length > 1) {
-        this.updateState({ currentPhase: 'analyzing', progress: 25 })
+      // Perform batch analysis for pattern clustering
+      if (this.config.autoAnalyze && sigCount > 1) {
+        this.updateState({ currentPhase: 'analyzing', progress: 40 })
         
-        result.batchAnalysis = performBatchAnalysis(result.scanResult.allSignatures)
+        result.batchAnalysis = performBatchAnalysis(signatures)
         
         const avgConfidence = result.batchAnalysis.clusters.length > 0
           ? result.batchAnalysis.clusters.reduce((sum, c) => sum + c.confidence, 0) / result.batchAnalysis.clusters.length
           : 0
         
-        this.addHistory('analysis-complete', `Found ${result.batchAnalysis.clusters.length} pattern clusters`, true, {
+        this.addHistory('batch-analysis-complete', `Found ${result.batchAnalysis.clusters.length} pattern clusters`, true, {
           patternsDetected: result.batchAnalysis.clusters.length,
           avgConfidence: Math.round(avgConfidence * 100) / 100
         })
       }
 
-      if (this.config.autoAnalyze && result.batchAnalysis) {
+      // ML predictions (optional)
+      if (this.config.autoAnalyze && result.batchAnalysis && sigCount >= 10) {
         this.updateState({ currentPhase: 'predicting', progress: 50 })
         
         try {
-          result.mlPredictions = await generateAIPredictions(
-            result.scanResult.allSignatures,
-            result.scanResult.weakSignatures,
-            result.batchAnalysis,
-            { from: endBlock + 1, to: endBlock + this.config.scanBatchSize }
-          )
+          // Use block numbers from signatures for prediction range
+          const blockNumbers = signatures.map(s => s.blockNumber || 0).filter(b => b > 0)
+          const maxBlock = blockNumbers.length > 0 ? Math.max(...blockNumbers) : 0
           
-          this.addHistory('predictions-generated', `Generated ${result.mlPredictions.predictions.length} block predictions`)
+          if (maxBlock > 0) {
+            result.mlPredictions = await generateAIPredictions(
+              signatures,
+              result.analysisResult.weakSignatures,
+              result.batchAnalysis,
+              { from: maxBlock + 1, to: maxBlock + 100 }
+            )
+            
+            this.addHistory('predictions-generated', `Generated ${result.mlPredictions.predictions.length} predictions`)
+          }
         } catch (error) {
           console.warn('ML prediction failed, continuing without predictions:', error)
         }
@@ -345,9 +407,16 @@ export class AutomationEngine {
   }
 
   private queueAttacksFromResults(result: WorkflowResult) {
-    if (result.scanResult?.weakSignatures) {
+    // Queue attacks from analysis results
+    if (result.analysisResult?.weakSignatures) {
+      for (const weakSig of result.analysisResult.weakSignatures) {
+        this.queueAttackFromWeakness(weakSig, 'ingested-data')
+      }
+    }
+    // Also check scanResult for backward compatibility
+    if (result.scanResult?.weakSignatures && !result.analysisResult) {
       for (const weakSig of result.scanResult.weakSignatures) {
-        this.queueAttackFromWeakness(weakSig, 'rpc-scan')
+        this.queueAttackFromWeakness(weakSig, 'ingested-data')
       }
     }
 
@@ -375,13 +444,14 @@ export class AutomationEngine {
     return clusterPriority >= configThreshold
   }
 
-  private queueAttackFromWeakness(weakSig: any, source: string) {
+  private queueAttackFromWeakness(weakSig: AnalyzerWeakSignature, source: string) {
     const priorityMap = {
       'nonce-reuse': 100,
       'small-r': 90,
-      'biased-nonce': 80,
+      'biased-k': 80,
       'similar-k': 70,
-      'high-s': 50
+      'low-s': 50,
+      'sequential-k': 85
     }
 
     const basis = this.generateBasisFromWeakness(weakSig)
@@ -421,20 +491,29 @@ export class AutomationEngine {
     this.attackQueue.push(attack)
   }
 
-  private generateBasisFromWeakness(weakSig: any): number[][] | null {
-    if (weakSig.weakness === 'nonce-reuse') {
-      const n = 2n ** 256n - 432420386565659656852420866394968145599n
-      const r = BigInt(weakSig.r || '0x' + 'a'.repeat(64))
+  private generateBasisFromWeakness(weakSig: AnalyzerWeakSignature): number[][] | null {
+    const sig = weakSig.signature
+    
+    if (weakSig.weakness === 'nonce-reuse' && weakSig.relatedSignatures && weakSig.relatedSignatures.length > 0) {
+      // Nonce reuse attack: use r from both signatures
+      const relatedSig = weakSig.relatedSignatures[0]
+      const r = sig.r
+      const s1 = sig.s
+      const s2 = relatedSig.s
       
+      // Scale down to fit in number range
+      const scale = 1000000n
       return [
-        [Number(n % (2n ** 32n)), Number((n >> 32n) % (2n ** 32n))],
-        [Number(r % (2n ** 32n)), Number((r >> 32n) % (2n ** 32n))]
+        [Number(r / scale % (2n ** 32n)), 0, 0],
+        [Number(s1 / scale % (2n ** 32n)), 1, 0],
+        [Number(s2 / scale % (2n ** 32n)), 0, 1]
       ]
     }
 
-    if (weakSig.weakness === 'biased-nonce') {
+    if (weakSig.weakness === 'biased-k' || weakSig.weakness === 'similar-k') {
       const dim = 8
       const basis: number[][] = []
+      const scale = 10n ** 60n
       
       for (let i = 0; i < dim; i++) {
         const row: number[] = []
@@ -442,7 +521,7 @@ export class AutomationEngine {
           if (i === j) {
             row.push(i === 0 ? 1 : 2 ** (8 + i))
           } else if (j === 0) {
-            row.push(Math.floor(Math.random() * 1000) + 1)
+            row.push(Number((sig.r / scale) % 1000n) + i * 100)
           } else {
             row.push(0)
           }
@@ -451,6 +530,15 @@ export class AutomationEngine {
       }
       
       return basis
+    }
+    
+    if (weakSig.weakness === 'small-r') {
+      // Small r attack
+      const scale = 1n
+      return [
+        [Number(sig.r / scale), 0],
+        [Number(sig.s / scale % (2n ** 32n)), 1]
+      ]
     }
 
     return null
