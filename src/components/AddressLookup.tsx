@@ -61,11 +61,19 @@ export function AddressLookup({ onAttackGenerated }: AddressLookupProps) {
     setAddressData(null)
 
     try {
-      toast.info('Fetching blockchain data...', {
-        description: 'Analyzing transactions for vulnerabilities'
+      const progressToast = toast.loading('Fetching blockchain data...', {
+        description: 'Please wait, this may take a moment'
       })
 
       const sigData = await blockchainExplorer.analyzeAddressSignatures(address, chain)
+
+      toast.dismiss(progressToast)
+
+      console.log('Signature extraction result:', {
+        totalTransactions: sigData.totalTransactions,
+        signaturesFound: sigData.signaturesFound,
+        signatures: sigData.signatures
+      })
 
       if (sigData.signatures.length === 0) {
         setAddressData({
