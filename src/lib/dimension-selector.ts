@@ -41,6 +41,26 @@ const DIMENSION_FOR_LARGE_BIAS = 40
 const DEFAULT_BATCH_SIZE = 80
 const MAX_SIGNATURES_BEFORE_BATCHING = 100
 
+// Batch size constants
+/** Minimum acceptable batch size as ratio of target (60%) - smaller batches are not useful for attack */
+const MIN_BATCH_SIZE_RATIO = 0.6
+
+// Bias estimation constants
+/** Threshold (hex value 0x10 = 16) - values with lower 8 bits below this indicate LSB bias */
+const LSB_BIAS_THRESHOLD = 0x10n
+/** Minimum ratio of signatures showing MSB bias to consider it significant */
+const MSB_BIAS_RATIO_THRESHOLD = 0.3
+/** Base number of bias bits when MSB bias is detected */
+const BASE_MSB_BIAS_BITS = 8
+/** Maximum estimated MSB bias bits */
+const MAX_MSB_BIAS_BITS = 16
+/** Ratio of nonce reuse that indicates full key recovery is possible */
+const NONCE_REUSE_THRESHOLD = 0.1
+/** Full key bits when nonce reuse is detected */
+const FULL_KEY_RECOVERY_BITS = 256
+/** Default assumed bias bits when no patterns detected */
+const DEFAULT_ASSUMED_BIAS_BITS = 4
+
 /**
  * Calculate the minimum required rows based on bias bits
  * Constraint: d > 1.2 * (256 / expected_bias_bits)
@@ -89,9 +109,9 @@ export function createSignatureBatches(
   const batches: ParsedSignature[][] = []
   for (let i = 0; i < shuffled.length; i += batchSize) {
     const batch = shuffled.slice(i, i + batchSize)
-    // Only include batches that are at least 60% of the target size
+    // Only include batches that are at least MIN_BATCH_SIZE_RATIO of the target size
     // to avoid very small batches that won't be useful
-    if (batch.length >= Math.floor(batchSize * 0.6)) {
+    if (batch.length >= Math.floor(batchSize * MIN_BATCH_SIZE_RATIO)) {
       batches.push(batch)
     }
   }
@@ -120,7 +140,7 @@ export function selectBlockSize(dimension: number): number {
  */
 export function estimateBiasBits(signatures: ParsedSignature[]): number {
   if (signatures.length < 2) {
-    return 4 // Default assumption
+    return DEFAULT_ASSUMED_BIAS_BITS
   }
 
   // Analyze r-values for patterns
@@ -133,11 +153,11 @@ export function estimateBiasBits(signatures: ParsedSignature[]): number {
 
   for (const r of rValues) {
     const bitLength = r.toString(2).length
-    if (bitLength < expectedBitLength - 8) {
+    if (bitLength < expectedBitLength - BASE_MSB_BIAS_BITS) {
       msbBiasCount++
     }
     // Check LSB bias (lower bits showing patterns)
-    if ((r & 0xFFn) < 0x10n) {
+    if ((r & 0xFFn) < LSB_BIAS_THRESHOLD) {
       lsbBiasCount++
     }
   }
@@ -145,28 +165,28 @@ export function estimateBiasBits(signatures: ParsedSignature[]): number {
   const msbBiasRatio = msbBiasCount / signatures.length
   const lsbBiasRatio = lsbBiasCount / signatures.length
 
-  // If more than 30% of signatures show MSB bias, estimate higher bias
-  if (msbBiasRatio > 0.3) {
+  // If significant portion of signatures show MSB bias, estimate higher bias
+  if (msbBiasRatio > MSB_BIAS_RATIO_THRESHOLD) {
     // MSB leak - typically 8+ bits exposed
-    return Math.min(16, Math.round(8 + msbBiasRatio * 8))
+    return Math.min(MAX_MSB_BIAS_BITS, Math.round(BASE_MSB_BIAS_BITS + msbBiasRatio * BASE_MSB_BIAS_BITS))
   }
 
   // If LSB bias is detected
-  if (lsbBiasRatio > 0.3) {
-    return Math.min(8, Math.round(4 + lsbBiasRatio * 4))
+  if (lsbBiasRatio > MSB_BIAS_RATIO_THRESHOLD) {
+    return Math.min(BASE_MSB_BIAS_BITS, Math.round(DEFAULT_ASSUMED_BIAS_BITS + lsbBiasRatio * DEFAULT_ASSUMED_BIAS_BITS))
   }
 
   // Check for nonce reuse (same r-values)
   const uniqueRValues = new Set(rValues.map(r => r.toString()))
   const reuseRatio = 1 - (uniqueRValues.size / rValues.length)
   
-  if (reuseRatio > 0.1) {
-    // Nonce reuse indicates very high bias
-    return 256 // Full key recovery possible
+  if (reuseRatio > NONCE_REUSE_THRESHOLD) {
+    // Nonce reuse indicates very high bias - full key recovery possible
+    return FULL_KEY_RECOVERY_BITS
   }
 
   // Default: assume small bias (conservative estimate)
-  return 4
+  return DEFAULT_ASSUMED_BIAS_BITS
 }
 
 /**

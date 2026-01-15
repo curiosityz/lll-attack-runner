@@ -424,9 +424,13 @@ function App() {
       const sigs = pattern.signatures.slice(0, maxSigs)
       
       // Determine expected bias bits from pattern metadata
+      // MSB leak typically reveals ~8 bits, LSB bias is estimated from metadata or defaults to 4
+      const DEFAULT_MSB_BIAS_BITS = 8
+      const BIAS_MULTIPLIER = 10
+      const DEFAULT_BIAS_BITS = 4
       const expectedBiasBits = pattern.type === 'biased-msb' 
-        ? 8 // MSB leak typically reveals more bits
-        : (pattern.metadata?.bias ? Math.floor(pattern.metadata.bias * 10) : 4)
+        ? DEFAULT_MSB_BIAS_BITS
+        : (pattern.metadata?.bias ? Math.floor(pattern.metadata.bias * BIAS_MULTIPLIER) : DEFAULT_BIAS_BITS)
       
       // Use intelligent dimension selection
       const batchResult = buildHNPLatticeWithDimensionSelection(sigs, { expectedBiasBits })
