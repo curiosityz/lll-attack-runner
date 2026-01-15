@@ -24,12 +24,14 @@ import { VectorVisualization } from '@/components/VectorVisualization'
 import { MatrixHeatmap } from '@/components/MatrixHeatmap'
 import { OrthogonalityChart } from '@/components/OrthogonalityChart'
 import { DataUpload } from '@/components/DataUpload'
+import { BlockchairUpload } from '@/components/BlockchairUpload'
 import { AnalysisDisplay } from '@/components/AnalysisDisplay'
 import { AddressLookup } from '@/components/AddressLookup'
 import { BlockchainExplorerIntegration } from '@/components/BlockchainExplorerIntegration'
 import { SighashCalculator } from '@/components/SighashCalculator'
 import { ParsedSignature, ParseResult } from '@/lib/dataParser'
 import { analyzeSignatures, AnalysisResult, WeakSignature, PatternCluster } from '@/lib/signatureAnalyzer'
+import { ExtractedSignature } from '@/lib/blockchair-parser'
 import { ExplorerTransaction } from '@/lib/blockchain-explorer'
 import { extractPrivateKeyFromAttack, PrivateKeyResult } from '@/lib/privateKeyExtractor'
 import { PrivateKeyDisplay } from '@/components/PrivateKeyDisplay'
@@ -41,10 +43,50 @@ import { SaturationWarning } from '@/components/SaturationWarning'
 import { CORSExplanation } from '@/components/CORSExplanation'
 import { buildHNPLattice, buildEmbeddedHNPLattice, buildKannanEmbeddingLattice, selectOptimalLatticeType } from '@/lib/hnp-lattice-builder'
 import { interpretBKZResult, InterpreterResult, isKeyFound, getRetryRecommendation } from '@/lib/result-interpreter'
+import { DimensionSelectorDisplay } from '@/components/DimensionSelectorDisplay'
+import { buildHNPLattice, buildEmbeddedHNPLattice, buildKannanEmbeddingLattice, selectOptimalLatticeType, buildHNPLatticeWithDimensionSelection, BatchHNPLatticeResult } from '@/lib/hnp-lattice-builder'
+import { selectDimension, DimensionSelectionResult, estimateBiasBits } from '@/lib/dimension-selector'
+import { buildHNPLattice, buildEmbeddedHNPLattice, buildKannanEmbeddingLattice, selectOptimalLatticeType, HNPLatticeResult } from '@/lib/hnp-lattice-builder'
 
-function formatMatrixForDisplay(basis: number[][]): string {
+/**
+ * Converts a BigInt matrix to a number matrix for display and processing.
+ * Large values are scaled down to prevent overflow while preserving relative proportions.
+ */
+function convertBigIntBasisToNumber(basis: bigint[][]): number[][] {
+  // Find the maximum absolute value in the matrix
+  let maxVal = 1n
+  for (const row of basis) {
+    for (const val of row) {
+      const absVal = val < 0n ? -val : val
+      if (absVal > maxVal) {
+        maxVal = absVal
+      }
+    }
+  }
+  
+  // If values fit in safe integer range, convert directly
+  const MAX_SAFE = BigInt(Number.MAX_SAFE_INTEGER)
+  if (maxVal <= MAX_SAFE) {
+    return basis.map(row => row.map(val => Number(val)))
+  }
+  
+  // Scale down large values to prevent precision loss
+  // Use ceiling division to minimize information loss: (maxVal + MAX_SAFE - 1) / MAX_SAFE
+  const scaleFactor = (maxVal + MAX_SAFE - 1n) / MAX_SAFE
+  return basis.map(row => 
+    row.map(val => Number(val / scaleFactor))
+  )
+}
+
+/**
+ * Formats a matrix for display, handling both number and bigint matrices.
+ */
+function formatMatrixForDisplay(basis: number[][] | bigint[][]): string {
   return basis.map(row => 
     row.map(val => {
+      if (typeof val === 'bigint') {
+        return val.toString()
+      }
       if (Math.abs(val) < 1e10 && Number.isInteger(val)) {
         return val.toString()
       }
@@ -80,6 +122,7 @@ function App() {
   const [templateDialogOpen, setTemplateDialogOpen] = useState(false)
   
   const [uploadedSignatures, setUploadedSignatures] = useState<ParsedSignature[]>([])
+  const [blockchairRawSignatures, setBlockchairRawSignatures] = useState<ExtractedSignature[]>([])
   const [analysisResult, setAnalysisResult] = useState<AnalysisResult | null>(null)
   const [isAnalyzing, setIsAnalyzing] = useState(false)
   const [activeTab, setActiveTab] = useState('upload')
@@ -92,6 +135,8 @@ function App() {
   const [interpreterResult, setInterpreterResult] = useState<InterpreterResult | null>(null)
   const [showMatrixDetails, setShowMatrixDetails] = useState(false)
   const [targetAddress, setTargetAddress] = useState<string>('')
+  const [dimensionSelectionResult, setDimensionSelectionResult] = useState<DimensionSelectionResult | null>(null)
+  const [batchResults, setBatchResults] = useState<BatchHNPLatticeResult | null>(null)
 
   const handleAddressAttack = (address: string, basis: number[][], attackName: string) => {
     const dimension = basis.length
@@ -180,12 +225,52 @@ function App() {
     setTimeout(() => {
       const result = analyzeSignatures(signatures)
       setAnalysisResult(result)
+      
+      // Run dimension selection analysis
+      const dimSelection = selectDimension(signatures)
+      setDimensionSelectionResult(dimSelection)
+      
       setIsAnalyzing(false)
       
       if (result.weakSignatures.length > 0 || result.patterns.length > 0) {
         toast.success('Analysis complete!', {
           description: `Found ${result.weakSignatures.length} weaknesses and ${result.patterns.length} patterns`
         })
+      }
+      
+      // Show dimension selection info
+      if (dimSelection.isValid) {
+        if (dimSelection.batchCount > 1) {
+          toast.info('Batch mode enabled', {
+            description: `${signatures.length} signatures split into ${dimSelection.batchCount} batches of ~${dimSelection.batches[0]?.length || 80} for parallel attacks`
+          })
+        }
+      } else {
+        toast.warning('Insufficient data for attack', {
+          description: dimSelection.insufficientDataReason
+        })
+      }
+    }, 500)
+  }
+
+  const handleBlockchairSignatures = (signatures: ParsedSignature[], rawSignatures: ExtractedSignature[]) => {
+    setUploadedSignatures(signatures)
+    setBlockchairRawSignatures(rawSignatures)
+    setIsAnalyzing(true)
+    
+    setTimeout(() => {
+      const result = analyzeSignatures(signatures)
+      setAnalysisResult(result)
+      setIsAnalyzing(false)
+      
+      // Count vulnerabilities from raw Blockchair data
+      const vulnCount = rawSignatures.filter(s => s.vulnerabilities.length > 0).length
+      
+      if (result.weakSignatures.length > 0 || result.patterns.length > 0 || vulnCount > 0) {
+        toast.success('Blockchair analysis complete!', {
+          description: `Found ${result.weakSignatures.length + vulnCount} weaknesses and ${result.patterns.length} patterns`
+        })
+        setActiveTab('analyze')
       }
     }, 500)
   }
@@ -225,19 +310,21 @@ function App() {
       
     } else if (weakness.weakness === 'biased-k' || weakness.weakness === 'similar-k') {
       const relatedSigs = [weakness.signature, ...(weakness.relatedSignatures || [])]
-      const sigs = relatedSigs.slice(0, Math.min(relatedSigs.length, 80))
+      const sigs = relatedSigs.slice(0, Math.min(relatedSigs.length, 500)) // Allow more signatures for batching
       
-      if (sigs.length < 40) {
-        toast.warning('Insufficient signatures for reliable attack', {
-          description: `Only ${sigs.length} signatures available. Need 40+ for high success rate. This attack will likely find noise, not the private key.`
-        })
-      }
+      // Use intelligent dimension selection
+      const batchResult = buildHNPLatticeWithDimensionSelection(sigs)
+      setDimensionSelectionResult(batchResult.dimensionSelection)
+      setBatchResults(batchResult)
       
+      if (!batchResult.isValid) {
+        toast.error('Insufficient Data', {
+          description: batchResult.insufficientDataReason || 'Not enough signatures for attack'
       if (sigs.length >= 10) {
         const knownBits = 4
         const latticeType = selectOptimalLatticeType(sigs.length, knownBits)
         
-        let latticeResult
+        let latticeResult: HNPLatticeResult
         if (latticeType === 'embedded') {
           latticeResult = buildEmbeddedHNPLattice(sigs, knownBits)
         } else if (latticeType === 'kannan') {
@@ -246,7 +333,7 @@ function App() {
           latticeResult = buildHNPLattice(sigs, knownBits)
         }
         
-        basis = latticeResult.basis
+        basis = convertBigIntBasisToNumber(latticeResult.basis)
         name = `HNP ${latticeType.toUpperCase()} - ${weakness.weakness} (${sigs.length} sigs, ${latticeResult.dimension}D)`
         algo = 'bkz'
         bSize = Math.min(30, Math.max(20, Math.ceil(latticeResult.dimension / 3)))
@@ -269,6 +356,7 @@ function App() {
           description: `Only ${sigs.length} signatures. Need at least 10 (ideally 40+) to extract private key.`
         })
         
+        // Still set up a basic attack for display, but warn user
         const scale = 10n ** 60n
         const n_scaled = Number(SECP256K1_N / scale)
         const r_scaled = Number(weakness.signature.r / scale)
@@ -295,6 +383,40 @@ function App() {
         setCurrentAttackSignatures([weakness.signature])
         setCurrentWeaknessType(weakness.weakness)
         setIsNormalized(true)
+      } else {
+        // Use the first batch for display, attacks will run on all batches
+        const firstBatch = batchResult.batches[0]
+        basis = firstBatch.basis
+        
+        const dimension = batchResult.dimensionSelection.selectedDimension
+        const biasBits = batchResult.dimensionSelection.expectedBiasBits
+        
+        if (batchResult.dimensionSelection.batchCount > 1) {
+          name = `HNP BATCH - ${weakness.weakness} (${batchResult.dimensionSelection.batchCount} batches, ${dimension}D, ${biasBits}bit bias)`
+        } else {
+          name = `HNP ${firstBatch.metadata.latticeType.toUpperCase()} - ${weakness.weakness} (${sigs.length} sigs, ${dimension}D)`
+        }
+        
+        algo = 'bkz'
+        bSize = batchResult.recommendedBlockSize
+        
+        setCurrentAttackSignatures(sigs)
+        setCurrentWeaknessType(weakness.weakness)
+        setIsNormalized(true)
+        
+        if (batchResult.dimensionSelection.batchCount > 1) {
+          toast.success('Batch attack configured!', {
+            description: `${sigs.length} signatures → ${batchResult.dimensionSelection.batchCount} parallel batches of ${dimension}×${dimension}`
+          })
+        } else if (dimension >= 40) {
+          toast.success('High-dimensional attack configured', {
+            description: `${dimension}×${dimension} lattice built from ${sigs.length} signatures`
+          })
+        } else {
+          toast.info('Attack configured', {
+            description: `Using ${sigs.length} signatures • ${dimension}D lattice`
+          })
+        }
       }
       
     } else if (weakness.weakness === 'small-r') {
@@ -399,20 +521,27 @@ function App() {
       setIsNormalized(true)
       
     } else if (pattern.type === 'biased-lsb' || pattern.type === 'biased-msb') {
-      const maxSigs = 80
+      const maxSigs = 500 // Allow more signatures for batching
       const sigs = pattern.signatures.slice(0, maxSigs)
-      const actualSigCount = sigs.length
       
-      if (actualSigCount < 40) {
-        toast.warning('Insufficient signatures for reliable HNP attack', {
-          description: `Only ${actualSigCount} signatures. Need 40+ for high success rate.`
-        })
-      }
+      // Determine expected bias bits from pattern metadata
+      // MSB leak typically reveals ~8 bits, LSB bias is estimated from metadata or defaults to 4
+      const DEFAULT_MSB_BIAS_BITS = 8
+      const BIAS_MULTIPLIER = 10
+      const DEFAULT_BIAS_BITS = 4
+      const expectedBiasBits = pattern.type === 'biased-msb' 
+        ? DEFAULT_MSB_BIAS_BITS
+        : (pattern.metadata?.bias ? Math.floor(pattern.metadata.bias * BIAS_MULTIPLIER) : DEFAULT_BIAS_BITS)
       
-      const knownBits = pattern.metadata?.bias ? Math.floor(pattern.metadata.bias * 10) : 4
-      const latticeType = selectOptimalLatticeType(actualSigCount, knownBits)
+      // Use intelligent dimension selection
+      const batchResult = buildHNPLatticeWithDimensionSelection(sigs, { expectedBiasBits })
+      setDimensionSelectionResult(batchResult.dimensionSelection)
+      setBatchResults(batchResult)
       
-      let latticeResult
+      if (!batchResult.isValid) {
+        toast.error('Insufficient Data', {
+          description: batchResult.insufficientDataReason || 'Not enough signatures for attack'
+      let latticeResult: HNPLatticeResult
       if (latticeType === 'embedded') {
         latticeResult = buildEmbeddedHNPLattice(sigs, knownBits)
       } else if (latticeType === 'kannan') {
@@ -421,7 +550,7 @@ function App() {
         latticeResult = buildHNPLattice(sigs, knownBits)
       }
       
-      basis = latticeResult.basis
+      basis = convertBigIntBasisToNumber(latticeResult.basis)
       name = `HNP ${latticeType.toUpperCase()} - ${pattern.type.toUpperCase()} (${actualSigCount} sigs, ${latticeResult.dimension}D)`
       algo = 'bkz'
       bSize = Math.min(30, Math.max(20, Math.ceil(latticeResult.dimension / 3)))
@@ -434,10 +563,47 @@ function App() {
         toast.success('High-dimensional lattice constructed', {
           description: `${latticeResult.dimension}x${latticeResult.dimension} • ${actualSigCount} sigs • ${latticeResult.metadata.estimatedComplexity}`
         })
+        // Set up a minimal display
+        basis = [[1]]
+        name = `HNP Attack - INSUFFICIENT DATA (${sigs.length} sigs, need ${batchResult.dimensionSelection.minRequiredRows})`
+        algo = 'bkz'
+        bSize = 10
+        setCurrentAttackSignatures(sigs)
+        setCurrentWeaknessType('biased-k')
+        setIsNormalized(true)
       } else {
-        toast.info('Advanced HNP lattice constructed', {
-          description: `${latticeType} embedding • ${actualSigCount} signatures • Est: ${latticeResult.metadata.estimatedComplexity}`
-        })
+        const firstBatch = batchResult.batches[0]
+        basis = firstBatch.basis
+        
+        const dimension = batchResult.dimensionSelection.selectedDimension
+        const biasBits = batchResult.dimensionSelection.expectedBiasBits
+        
+        if (batchResult.dimensionSelection.batchCount > 1) {
+          name = `HNP BATCH - ${pattern.type.toUpperCase()} (${batchResult.dimensionSelection.batchCount} batches, ${dimension}D, ${biasBits}bit bias)`
+        } else {
+          name = `HNP ${firstBatch.metadata.latticeType.toUpperCase()} - ${pattern.type.toUpperCase()} (${sigs.length} sigs, ${dimension}D)`
+        }
+        
+        algo = 'bkz'
+        bSize = batchResult.recommendedBlockSize
+        
+        setCurrentAttackSignatures(sigs)
+        setCurrentWeaknessType('biased-k')
+        setIsNormalized(true)
+        
+        if (batchResult.dimensionSelection.batchCount > 1) {
+          toast.success('Batch attack configured!', {
+            description: `${sigs.length} signatures → ${batchResult.dimensionSelection.batchCount} parallel batches of ${dimension}×${dimension}`
+          })
+        } else if (dimension >= 40) {
+          toast.success('High-dimensional lattice constructed', {
+            description: `${dimension}×${dimension} • ${sigs.length} sigs • ${firstBatch.metadata.estimatedComplexity}`
+          })
+        } else {
+          toast.info('Attack configured', {
+            description: `Using ${sigs.length} signatures • ${dimension}D lattice`
+          })
+        }
       }
       
     } else {
@@ -776,15 +942,21 @@ function App() {
               <Lightbulb size={18} className="text-accent" weight="duotone" />
               <AlertDescription className="text-sm">
                 <strong>⚠️ Browser Security Limitation:</strong> Direct blockchain API access is blocked by browser CORS policies. 
-                <strong> Solution:</strong> Upload signature data files (JSON/CSV) directly for full functionality.
+                <strong> Solution:</strong> Upload signature data files (JSON/CSV/TSV) directly for full functionality.
               </AlertDescription>
             </Alert>
+            <BlockchairUpload onSignaturesExtracted={handleBlockchairSignatures} />
             <AddressLookup onAttackGenerated={handleAddressAttack} />
             <DataUpload onDataParsed={handleDataParsed} />
           </TabsContent>
 
           <TabsContent value="analyze" className="space-y-6">
             <SignatureRequirementInfo currentCount={uploadedSignatures.length} />
+            <DimensionSelectorDisplay 
+              result={dimensionSelectionResult} 
+              totalSignatures={uploadedSignatures.length}
+              isComputing={isAnalyzing}
+            />
             <AnalysisDisplay 
               result={analysisResult || {
                 totalAnalyzed: 0,
@@ -1072,6 +1244,15 @@ function App() {
               </div>
 
               <div className="space-y-6">
+                {/* Dimension Selector Display - shows intelligent selection info */}
+                {dimensionSelectionResult && (
+                  <DimensionSelectorDisplay 
+                    result={dimensionSelectionResult} 
+                    totalSignatures={currentAttackSignatures.length}
+                    isComputing={false}
+                  />
+                )}
+                
                 {(() => {
                   const basis = parseBasisFromString(basisInput)
                   if (basis && basis.length > 0) {
