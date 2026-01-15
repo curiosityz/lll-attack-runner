@@ -108,11 +108,17 @@ export function BlockchairUpload({ onSignaturesExtracted }: BlockchairUploadProp
         // Check if file is gzipped
         if (file.name.endsWith('.gz')) {
           try {
-            // Use DecompressionStream API if available
+            // Use DecompressionStream API if available and supports gzip
             if ('DecompressionStream' in window) {
-              const stream = file.stream().pipeThrough(new DecompressionStream('gzip'))
-              const decompressed = await new Response(stream).text()
-              content = decompressed
+              try {
+                const stream = file.stream().pipeThrough(new DecompressionStream('gzip'))
+                const decompressed = await new Response(stream).text()
+                content = decompressed
+              } catch (decompressionErr) {
+                // DecompressionStream exists but failed - could be unsupported format
+                parseErrors.push(`${file.name}: Gzip decompression failed. Please decompress the file manually and re-upload.`)
+                continue
+              }
             } else {
               parseErrors.push(`${file.name}: Gzip decompression not supported in this browser. Please decompress manually.`)
               continue

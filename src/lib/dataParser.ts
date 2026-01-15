@@ -521,11 +521,13 @@ export function parseTransactionData(content: string): ParseResult {
     // Not JSON, continue to other formats
   }
 
+  // Get first line once and lowercase it for comparisons
+  const firstLine = trimmed.split('\n')[0]
+  const lowerFirstLine = firstLine.toLowerCase()
+
   // Check for TSV format (tab-separated values)
   // TSV is common for Blockchair dumps
-  const firstLine = trimmed.split('\n')[0]
   if (firstLine.includes('\t')) {
-    const lowerFirstLine = firstLine.toLowerCase()
     // Check for Blockchair-style headers or generic TSV with signature data
     if (lowerFirstLine.includes('transaction') || 
         lowerFirstLine.includes('signature') ||
@@ -540,8 +542,7 @@ export function parseTransactionData(content: string): ParseResult {
 
   // Check for CSV format (comma-separated)
   if (trimmed.includes(',') && (trimmed.includes('\n') || trimmed.includes('\r'))) {
-    const csvFirstLine = trimmed.split('\n')[0].toLowerCase()
-    if (csvFirstLine.includes('r') || csvFirstLine.includes('s') || csvFirstLine.includes('signature')) {
+    if (lowerFirstLine.includes('r') || lowerFirstLine.includes('s') || lowerFirstLine.includes('signature')) {
       return parseCSVFormat(trimmed)
     }
   }

@@ -178,9 +178,23 @@ export function parseDERSignature(hexSignature: string): {
     }
     pos += 2
     
-    // Get total length (can be 1 or 2 bytes for long form)
-    let totalLength = parseInt(hex.substring(pos, pos + 2), 16)
+    // Get total length (handle both short form and long form DER encoding)
+    let totalLength: number
+    const lengthByte = parseInt(hex.substring(pos, pos + 2), 16)
     pos += 2
+    
+    if (lengthByte <= 127) {
+      // Short form: length fits in single byte
+      totalLength = lengthByte
+    } else {
+      // Long form: first byte indicates number of length bytes
+      const numLengthBytes = lengthByte & 0x7F
+      if (numLengthBytes > 2 || pos + numLengthBytes * 2 > hex.length) {
+        return null
+      }
+      totalLength = parseInt(hex.substring(pos, pos + numLengthBytes * 2), 16)
+      pos += numLengthBytes * 2
+    }
     
     // Check for R integer marker 0x02
     if (hex.substring(pos, pos + 2) !== '02') {
@@ -385,6 +399,16 @@ function parseRawWitness(hex: string): {
 // ============================================================================
 
 /**
+ * Helper function to safely get column value from row
+ * Returns undefined if column index is not in the map
+ */
+function getColumn(cols: string[], columnMap: Record<string, number>, key: string): string | undefined {
+  const idx = columnMap[key]
+  if (idx === undefined) return undefined
+  return cols[idx]
+}
+
+/**
  * Parse Blockchair inputs TSV content
  */
 export function parseInputsTSV(content: string): BlockchairInput[] {
@@ -416,31 +440,35 @@ export function parseInputsTSV(content: string): BlockchairInput[] {
     try {
       const cols = lines[i].split('\t')
       
+      const isSpentVal = getColumn(cols, columnMap, 'is_spent')
       const input: BlockchairInput = {
-        blockId: parseInt(cols[columnMap['block_id']] || '0') || 0,
-        transactionHash: cols[columnMap['transaction_hash']] || '',
-        index: parseInt(cols[columnMap['index']] || '0') || 0,
-        time: cols[columnMap['time']] || '',
-        value: BigInt(cols[columnMap['value']] || '0'),
-        scriptHex: cols[columnMap['script_hex']] || '',
-        spendingSignatureHex: cols[columnMap['spending_signature_hex']] || '',
-        spendingWitnessHex: cols[columnMap['spending_witness_hex']] || '',
-        spendingSequence: parseInt(cols[columnMap['spending_sequence']] || '0') || 0,
-        spendingNLocktime: parseInt(cols[columnMap['spending_n_locktime']] || '0') || 0,
-        isSpent: cols[columnMap['is_spent']] === 'true' || cols[columnMap['is_spent']] === '1',
-        spendingTransactionHash: cols[columnMap['spending_transaction_hash']] || undefined,
-        spendingBlockId: parseInt(cols[columnMap['spending_block_id']] || '0') || undefined,
-        spendingIndex: parseInt(cols[columnMap['spending_index']] || '0') || undefined,
+        blockId: parseInt(getColumn(cols, columnMap, 'block_id') || '0') || 0,
+        transactionHash: getColumn(cols, columnMap, 'transaction_hash') || '',
+        index: parseInt(getColumn(cols, columnMap, 'index') || '0') || 0,
+        time: getColumn(cols, columnMap, 'time') || '',
+        value: BigInt(getColumn(cols, columnMap, 'value') || '0'),
+        scriptHex: getColumn(cols, columnMap, 'script_hex') || '',
+        spendingSignatureHex: getColumn(cols, columnMap, 'spending_signature_hex') || '',
+        spendingWitnessHex: getColumn(cols, columnMap, 'spending_witness_hex') || '',
+        spendingSequence: parseInt(getColumn(cols, columnMap, 'spending_sequence') || '0') || 0,
+        spendingNLocktime: parseInt(getColumn(cols, columnMap, 'spending_n_locktime') || '0') || 0,
+        isSpent: isSpentVal === 'true' || isSpentVal === '1',
+        spendingTransactionHash: getColumn(cols, columnMap, 'spending_transaction_hash') || undefined,
+        spendingBlockId: parseInt(getColumn(cols, columnMap, 'spending_block_id') || '0') || undefined,
+        spendingIndex: parseInt(getColumn(cols, columnMap, 'spending_index') || '0') || undefined,
       }
       
-      if (cols[columnMap['value_usd']]) {
-        input.valueUsd = parseFloat(cols[columnMap['value_usd']])
+      const valueUsd = getColumn(cols, columnMap, 'value_usd')
+      if (valueUsd) {
+        input.valueUsd = parseFloat(valueUsd)
       }
-      if (cols[columnMap['recipient']]) {
-        input.recipient = cols[columnMap['recipient']]
+      const recipient = getColumn(cols, columnMap, 'recipient')
+      if (recipient) {
+        input.recipient = recipient
       }
-      if (cols[columnMap['type']]) {
-        input.type = cols[columnMap['type']]
+      const type = getColumn(cols, columnMap, 'type')
+      if (type) {
+        input.type = type
       }
       
       inputs.push(input)
@@ -483,20 +511,21 @@ export function parseOutputsTSV(content: string): BlockchairOutput[] {
     try {
       const cols = lines[i].split('\t')
       
+      const isSpentVal = getColumn(cols, columnMap, 'is_spent')
       outputs.push({
-        blockId: parseInt(cols[columnMap['block_id']] || '0') || 0,
-        transactionHash: cols[columnMap['transaction_hash']] || '',
-        index: parseInt(cols[columnMap['index']] || '0') || 0,
-        time: cols[columnMap['time']] || '',
-        value: BigInt(cols[columnMap['value']] || '0'),
-        valueUsd: parseFloat(cols[columnMap['value_usd']] || '0'),
-        recipient: cols[columnMap['recipient']] || '',
-        type: cols[columnMap['type']] || '',
-        scriptPubKeyHex: cols[columnMap['script_pub_key_hex']] || '',
-        isSpent: cols[columnMap['is_spent']] === 'true' || cols[columnMap['is_spent']] === '1',
-        spendingTransactionHash: cols[columnMap['spending_transaction_hash']] || undefined,
-        spendingBlockId: parseInt(cols[columnMap['spending_block_id']] || '0') || undefined,
-        spendingIndex: parseInt(cols[columnMap['spending_index']] || '0') || undefined,
+        blockId: parseInt(getColumn(cols, columnMap, 'block_id') || '0') || 0,
+        transactionHash: getColumn(cols, columnMap, 'transaction_hash') || '',
+        index: parseInt(getColumn(cols, columnMap, 'index') || '0') || 0,
+        time: getColumn(cols, columnMap, 'time') || '',
+        value: BigInt(getColumn(cols, columnMap, 'value') || '0'),
+        valueUsd: parseFloat(getColumn(cols, columnMap, 'value_usd') || '0'),
+        recipient: getColumn(cols, columnMap, 'recipient') || '',
+        type: getColumn(cols, columnMap, 'type') || '',
+        scriptPubKeyHex: getColumn(cols, columnMap, 'script_pub_key_hex') || '',
+        isSpent: isSpentVal === 'true' || isSpentVal === '1',
+        spendingTransactionHash: getColumn(cols, columnMap, 'spending_transaction_hash') || undefined,
+        spendingBlockId: parseInt(getColumn(cols, columnMap, 'spending_block_id') || '0') || undefined,
+        spendingIndex: parseInt(getColumn(cols, columnMap, 'spending_index') || '0') || undefined,
       })
     } catch {
       continue
@@ -536,22 +565,24 @@ export function parseTransactionsTSV(content: string): BlockchairTransaction[] {
     try {
       const cols = lines[i].split('\t')
       
+      const isCoinbaseVal = getColumn(cols, columnMap, 'is_coinbase')
+      const hasWitnessVal = getColumn(cols, columnMap, 'has_witness')
       transactions.push({
-        blockId: parseInt(cols[columnMap['block_id']] || '0') || 0,
-        hash: cols[columnMap['hash']] || '',
-        time: cols[columnMap['time']] || '',
-        size: parseInt(cols[columnMap['size']] || '0') || 0,
-        weight: parseInt(cols[columnMap['weight']] || '0') || 0,
-        version: parseInt(cols[columnMap['version']] || '1') || 1,
-        lockTime: parseInt(cols[columnMap['lock_time']] || '0') || 0,
-        isCoinbase: cols[columnMap['is_coinbase']] === 'true' || cols[columnMap['is_coinbase']] === '1',
-        hasWitness: cols[columnMap['has_witness']] === 'true' || cols[columnMap['has_witness']] === '1',
-        inputCount: parseInt(cols[columnMap['input_count']] || '0') || 0,
-        outputCount: parseInt(cols[columnMap['output_count']] || '0') || 0,
-        inputTotal: BigInt(cols[columnMap['input_total']] || '0'),
-        outputTotal: BigInt(cols[columnMap['output_total']] || '0'),
-        fee: BigInt(cols[columnMap['fee']] || '0'),
-        feeUsd: parseFloat(cols[columnMap['fee_usd']] || '0'),
+        blockId: parseInt(getColumn(cols, columnMap, 'block_id') || '0') || 0,
+        hash: getColumn(cols, columnMap, 'hash') || '',
+        time: getColumn(cols, columnMap, 'time') || '',
+        size: parseInt(getColumn(cols, columnMap, 'size') || '0') || 0,
+        weight: parseInt(getColumn(cols, columnMap, 'weight') || '0') || 0,
+        version: parseInt(getColumn(cols, columnMap, 'version') || '1') || 1,
+        lockTime: parseInt(getColumn(cols, columnMap, 'lock_time') || '0') || 0,
+        isCoinbase: isCoinbaseVal === 'true' || isCoinbaseVal === '1',
+        hasWitness: hasWitnessVal === 'true' || hasWitnessVal === '1',
+        inputCount: parseInt(getColumn(cols, columnMap, 'input_count') || '0') || 0,
+        outputCount: parseInt(getColumn(cols, columnMap, 'output_count') || '0') || 0,
+        inputTotal: BigInt(getColumn(cols, columnMap, 'input_total') || '0'),
+        outputTotal: BigInt(getColumn(cols, columnMap, 'output_total') || '0'),
+        fee: BigInt(getColumn(cols, columnMap, 'fee') || '0'),
+        feeUsd: parseFloat(getColumn(cols, columnMap, 'fee_usd') || '0'),
       })
     } catch {
       continue
