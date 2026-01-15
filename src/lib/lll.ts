@@ -8,6 +8,10 @@ export interface LLLResult {
   steps?: LLLStep[]
 }
 
+function yieldToUI(): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, 0))
+}
+
 function dotProduct(a: number[], b: number[]): number {
   return a.reduce((sum, val, i) => sum + val * b[i], 0)
 }
@@ -37,8 +41,11 @@ function gramSchmidt(basis: number[][]): { orthogonal: number[][], mu: number[][
     let vec = [...basis[i]]
     
     for (let j = 0; j < i; j++) {
-      mu[i][j] = dotProduct(basis[i], orthogonal[j]) / dotProduct(orthogonal[j], orthogonal[j])
-      vec = vectorSubtract(vec, vectorScale(orthogonal[j], mu[i][j]))
+      const denom = dotProduct(orthogonal[j], orthogonal[j])
+      if (Math.abs(denom) > 1e-10) {
+        mu[i][j] = dotProduct(basis[i], orthogonal[j]) / denom
+        vec = vectorSubtract(vec, vectorScale(orthogonal[j], mu[i][j]))
+      }
     }
     
     orthogonal.push(vec)
@@ -66,8 +73,11 @@ export function runLLL(basis: number[][], delta: number = 0.75, captureSteps: bo
   const n = basis.length
   const reducedBasis = basis.map(row => [...row])
   let iterations = 0
-  const maxIterations = 10000
+  const dimension = n
+  const maxIterations = dimension >= 40 ? 5000 : dimension >= 20 ? 8000 : 10000
   const steps: LLLStep[] = []
+  const startTime = Date.now()
+  const timeoutMs = dimension >= 40 ? 30000 : dimension >= 20 ? 45000 : 60000
 
   if (captureSteps) {
     steps.push({
@@ -80,9 +90,29 @@ export function runLLL(basis: number[][], delta: number = 0.75, captureSteps: bo
   }
 
   let k = 1
+  let stuckCounter = 0
+  let lastK = k
+  let lastYieldTime = Date.now()
 
   while (k < n && iterations < maxIterations) {
     iterations++
+    
+    const now = Date.now()
+    if (now - startTime > timeoutMs) {
+      console.warn(`LLL timeout after ${timeoutMs}ms at iteration ${iterations}`)
+      break
+    }
+    
+    if (k === lastK) {
+      stuckCounter++
+      if (stuckCounter > 200) {
+        console.warn(`LLL stuck at k=${k} for 200 iterations`)
+        break
+      }
+    } else {
+      stuckCounter = 0
+      lastK = k
+    }
 
     const { orthogonal, mu } = gramSchmidt(reducedBasis)
 

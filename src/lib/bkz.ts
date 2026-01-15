@@ -112,9 +112,14 @@ export function runBKZ(
   }
 
   const n = basis.length
+  const dimension = n
+  const adaptiveMaxIterations = Math.min(maxIterations, dimension >= 40 ? 20 : dimension >= 20 ? 35 : 50)
+  
   let reducedBasis = basis.map(row => [...row])
   let iterations = 0
   const steps: LLLStep[] = []
+  const startTime = Date.now()
+  const timeoutMs = dimension >= 40 ? 45000 : dimension >= 20 ? 60000 : 90000
   
   if (captureSteps) {
     steps.push({
@@ -128,7 +133,12 @@ export function runBKZ(
 
   let improved = true
   
-  while (improved && iterations < maxIterations) {
+  while (improved && iterations < adaptiveMaxIterations) {
+    if (Date.now() - startTime > timeoutMs) {
+      console.warn(`BKZ timeout after ${timeoutMs}ms at iteration ${iterations}`)
+      break
+    }
+    
     improved = false
     iterations++
     

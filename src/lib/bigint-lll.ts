@@ -75,9 +75,21 @@ export function runBigIntLLL(
   const basis = basisInput.map(row => [...row])
   let iterations = 0
   let k = 1
+  let stuckCounter = 0
+  let lastK = k
   
   while (k < n && iterations < maxIterations) {
     iterations++
+    
+    if (k === lastK) {
+      stuckCounter++
+      if (stuckCounter > 100) {
+        break
+      }
+    } else {
+      stuckCounter = 0
+      lastK = k
+    }
     
     const { mu, B } = computeGSO(basis)
     
@@ -134,12 +146,17 @@ export function runBigIntBKZ(
     return { reducedBasis: [], success: false, iterations: 0 }
   }
   
+  const dimension = n
+  const adaptiveMaxIterations = Math.min(maxIterations, dimension >= 40 ? 30 : dimension >= 20 ? 50 : 100)
+  const lllIterLimit = dimension >= 40 ? 200 : dimension >= 20 ? 300 : 500
+  const finalLLLLimit = dimension >= 40 ? 50 : dimension >= 20 ? 75 : 100
+  
   const basis = basisInput.map(row => [...row])
   let totalIterations = 0
   let improved = true
   let rounds = 0
   
-  while (improved && rounds < maxIterations) {
+  while (improved && rounds < adaptiveMaxIterations) {
     improved = false
     rounds++
     
@@ -147,7 +164,7 @@ export function runBigIntBKZ(
       const endIdx = Math.min(i + blockSize, n)
       const block = basis.slice(i, endIdx)
       
-      const blockResult = runBigIntLLL(block, delta, 500)
+      const blockResult = runBigIntLLL(block, delta, lllIterLimit)
       totalIterations += blockResult.iterations
       
       for (let j = 0; j < block.length; j++) {
@@ -156,9 +173,14 @@ export function runBigIntBKZ(
         }
         basis[i + j] = blockResult.reducedBasis[j]
       }
+      
+      if (totalIterations > adaptiveMaxIterations * lllIterLimit) {
+        improved = false
+        break
+      }
     }
     
-    const lllResult = runBigIntLLL(basis, delta, 100)
+    const lllResult = runBigIntLLL(basis, delta, finalLLLLimit)
     totalIterations += lllResult.iterations
     
     for (let i = 0; i < n; i++) {

@@ -87,6 +87,7 @@ function App() {
   const [currentWeaknessType, setCurrentWeaknessType] = useState<string>('')
   const [isNormalized, setIsNormalized] = useState(false)
   const [usePrecisionMode, setUsePrecisionMode] = useState(true)
+  const [attackProgress, setAttackProgress] = useState<string>('')
 
   const handleAddressAttack = (address: string, basis: number[][], attackName: string) => {
     const dimension = basis.length
@@ -493,44 +494,66 @@ function App() {
     setResult(null)
     setVisualizationSteps([])
     setPrivateKeyResult(null)
+    setAttackProgress('Initializing attack...')
 
     await new Promise(resolve => setTimeout(resolve, 100))
 
     const startTime = performance.now()
+    const dimension = basis.length
+    
+    setAttackProgress(`Running ${algorithm.toUpperCase()} on ${dimension}×${dimension} matrix...`)
     
     let lllResult: any
     
-    if (usePrecisionMode) {
-      if (algorithm === 'bkz') {
-        const blockSizeValue = parseInt(blockSize)
-        if (isNaN(blockSizeValue) || blockSizeValue < 2) {
-          toast.error('Block size must be at least 2')
-          setIsRunning(false)
-          return
+    try {
+      if (usePrecisionMode) {
+        if (algorithm === 'bkz') {
+          const blockSizeValue = parseInt(blockSize)
+          if (isNaN(blockSizeValue) || blockSizeValue < 2) {
+            toast.error('Block size must be at least 2')
+            setIsRunning(false)
+            setAttackProgress('')
+            return
+          }
+          setAttackProgress(`Running BKZ-${blockSizeValue} with high precision (this may take 30-60s for large matrices)...`)
+          lllResult = runPrecisionBKZ(basis, blockSizeValue, deltaValue, captureVisualization)
+        } else {
+          setAttackProgress(`Running LLL with high precision...`)
+          lllResult = runPrecisionLLL(basis, deltaValue, captureVisualization)
         }
-        lllResult = runPrecisionBKZ(basis, blockSizeValue, deltaValue, captureVisualization)
-      } else {
-        lllResult = runPrecisionLLL(basis, deltaValue, captureVisualization)
-      }
-      
-      if (lllResult.usedHighPrecision) {
-        toast.success('High-precision BigInt arithmetic used', {
-          description: 'Full secp256k1 values handled without precision loss'
-        })
-      }
-    } else {
-      if (algorithm === 'bkz') {
-        const blockSizeValue = parseInt(blockSize)
-        if (isNaN(blockSizeValue) || blockSizeValue < 2) {
-          toast.error('Block size must be at least 2')
-          setIsRunning(false)
-          return
+        
+        if (lllResult.usedHighPrecision) {
+          toast.success('High-precision BigInt arithmetic used', {
+            description: 'Full secp256k1 values handled without precision loss'
+          })
         }
-        lllResult = runBKZ(basis, blockSizeValue, deltaValue, captureVisualization)
       } else {
-        lllResult = runLLL(basis, deltaValue, captureVisualization)
+        if (algorithm === 'bkz') {
+          const blockSizeValue = parseInt(blockSize)
+          if (isNaN(blockSizeValue) || blockSizeValue < 2) {
+            toast.error('Block size must be at least 2')
+            setIsRunning(false)
+            setAttackProgress('')
+            return
+          }
+          setAttackProgress(`Running BKZ-${blockSizeValue}...`)
+          lllResult = runBKZ(basis, blockSizeValue, deltaValue, captureVisualization)
+        } else {
+          setAttackProgress(`Running LLL...`)
+          lllResult = runLLL(basis, deltaValue, captureVisualization)
+        }
       }
+    } catch (error) {
+      console.error('Attack failed:', error)
+      toast.error('Attack failed', {
+        description: error instanceof Error ? error.message : 'Unknown error occurred'
+      })
+      setIsRunning(false)
+      setAttackProgress('')
+      return
     }
+    
+    setAttackProgress('Processing results...')
     
     const endTime = performance.now()
     const executionTime = Math.round(endTime - startTime)
@@ -549,6 +572,7 @@ function App() {
 
     setResult(newResult)
     setIsRunning(false)
+    setAttackProgress('')
 
     if (lllResult.steps) {
       setVisualizationSteps(lllResult.steps)
@@ -854,21 +878,31 @@ function App() {
                         }
                         
                         return (
-                          <Alert className={statusColor}>
-                            <AlertDescription className="text-xs">
-                              <div className="flex items-center justify-between mb-1">
-                                <span>
-                                  {statusIcon} <strong>Matrix: {rows}×{cols}</strong>
-                                </span>
-                                <span className="font-semibold">
-                                  {dimension < 40 ? `Need ${40 - dimension} more sigs` : 'Ready for attack'}
-                                </span>
-                              </div>
-                              <div className="text-[10px] opacity-80">
-                                {statusText}
-                              </div>
-                            </AlertDescription>
-                          </Alert>
+                          <>
+                            <Alert className={statusColor}>
+                              <AlertDescription className="text-xs">
+                                <div className="flex items-center justify-between mb-1">
+                                  <span>
+                                    {statusIcon} <strong>Matrix: {rows}×{cols}</strong>
+                                  </span>
+                                  <span className="font-semibold">
+                                    {dimension < 40 ? `Need ${40 - dimension} more sigs` : 'Ready for attack'}
+                                  </span>
+                                </div>
+                                <div className="text-[10px] opacity-80">
+                                  {statusText}
+                                </div>
+                              </AlertDescription>
+                            </Alert>
+                            
+                            {dimension >= 30 && algorithm === 'bkz' && (
+                              <Alert className="border-warning/50 bg-warning/10">
+                                <AlertDescription className="text-xs">
+                                  ⏱️ <strong>Large Matrix Warning:</strong> BKZ on {dimension}×{dimension} matrix may take 30-90 seconds. The browser may appear frozen but is still computing.
+                                </AlertDescription>
+                              </Alert>
+                            )}
+                          </>
                         )
                       }
                       return null
@@ -952,6 +986,17 @@ function App() {
                         </>
                       )}
                     </Button>
+                    
+                    {attackProgress && (
+                      <Alert className="border-primary/50 bg-primary/10">
+                        <AlertDescription className="text-xs">
+                          <div className="flex items-center gap-2">
+                            <div className="animate-spin h-3 w-3 border-2 border-primary border-t-transparent rounded-full" />
+                            <span>{attackProgress}</span>
+                          </div>
+                        </AlertDescription>
+                      </Alert>
+                    )}
                   </div>
                 </Card>
               </div>
