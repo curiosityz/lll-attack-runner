@@ -33,6 +33,17 @@ import { ExplorerTransaction } from '@/lib/blockchain-explorer'
 import { extractPrivateKeyFromAttack, PrivateKeyResult } from '@/lib/privateKeyExtractor'
 import { PrivateKeyDisplay } from '@/components/PrivateKeyDisplay'
 
+function formatMatrixForDisplay(basis: number[][]): string {
+  return basis.map(row => 
+    row.map(val => {
+      if (Math.abs(val) < 1e10 && Number.isInteger(val)) {
+        return val.toString()
+      }
+      return Math.round(val).toString()
+    }).join(' ')
+  ).join('\n')
+}
+
 function App() {
   const [attackHistory, setAttackHistory] = useKV<AttackHistory[]>('attack-history', [])
   
@@ -64,16 +75,18 @@ function App() {
   const [privateKeyResult, setPrivateKeyResult] = useState<PrivateKeyResult | null>(null)
   const [currentAttackSignatures, setCurrentAttackSignatures] = useState<ParsedSignature[]>([])
   const [currentWeaknessType, setCurrentWeaknessType] = useState<string>('')
+  const [isNormalized, setIsNormalized] = useState(false)
 
   const handleAddressAttack = (address: string, basis: number[][], attackName: string) => {
     setAttackType('signature-scan')
     setAttackName(attackName)
-    setBasisInput(basis.map(row => row.join(' ')).join('\n'))
+    setBasisInput(formatMatrixForDisplay(basis))
     setAlgorithm('bkz')
     setBlockSize('20')
     setDelta('0.99')
     setResult(null)
     setVisualizationSteps([])
+    setIsNormalized(false)
     setActiveTab('attack')
     
     toast.success('Attack vector loaded!', {
@@ -169,18 +182,27 @@ function App() {
       
       setCurrentAttackSignatures([sig1, sig2, ...(weakness.relatedSignatures || [])])
       setCurrentWeaknessType('nonce-reuse')
+      setIsNormalized(false)
       
     } else if (weakness.weakness === 'biased-k' || weakness.weakness === 'similar-k') {
-      const scale = 1000000000n
+      const scale = 10n ** 60n
       const n_scaled = Number(SECP256K1_N / scale)
       const r_scaled = Number(weakness.signature.r / scale)
       const s_scaled = Number(weakness.signature.s / scale)
       
+      const maxSafe = 2 ** 30
+      const normFactor = Math.max(n_scaled, r_scaled, s_scaled, 1) / maxSafe
+      
+      const n_norm = Math.floor(n_scaled / normFactor)
+      const r_norm = Math.floor(r_scaled / normFactor)
+      const s_norm = Math.floor(s_scaled / normFactor)
+      const bound = Math.floor(Math.sqrt(n_norm))
+      
       basis = [
-        [n_scaled, 0, 0, 0],
-        [r_scaled, 1, 0, 0],
-        [s_scaled, 0, 1, 0],
-        [0, 0, 0, Math.floor(Math.sqrt(n_scaled))]
+        [n_norm, 0, 0, 0],
+        [r_norm, bound, 0, 0],
+        [s_norm, 0, bound, 0],
+        [0, 0, 0, bound]
       ]
       name = `HNP Attack - ${weakness.weakness} - ${weakness.signature.hash.slice(0, 10)}`
       algo = 'bkz'
@@ -188,6 +210,7 @@ function App() {
       
       setCurrentAttackSignatures([weakness.signature])
       setCurrentWeaknessType(weakness.weakness)
+      setIsNormalized(true)
       
     } else if (weakness.weakness === 'small-r') {
       const r_num = Number(weakness.signature.r)
@@ -202,6 +225,7 @@ function App() {
       
       setCurrentAttackSignatures([weakness.signature])
       setCurrentWeaknessType('small-r')
+      setIsNormalized(false)
       
     } else {
       const scale = 1000000n
@@ -217,11 +241,12 @@ function App() {
       
       setCurrentAttackSignatures([weakness.signature])
       setCurrentWeaknessType(weakness.weakness)
+      setIsNormalized(false)
     }
     
     setAttackType('signature-scan')
     setAttackName(name)
-    setBasisInput(basis.map(row => row.join(' ')).join('\n'))
+    setBasisInput(formatMatrixForDisplay(basis))
     setAlgorithm(algo)
     setBlockSize(bSize.toString())
     setResult(null)
@@ -259,6 +284,7 @@ function App() {
       
       setCurrentAttackSignatures(sigs)
       setCurrentWeaknessType('nonce-reuse')
+      setIsNormalized(false)
       
     } else if (pattern.type === 'sequential') {
       const sigs = pattern.signatures.slice(0, 5)
@@ -275,21 +301,31 @@ function App() {
       
       setCurrentAttackSignatures(sigs)
       setCurrentWeaknessType('sequential-k')
+      setIsNormalized(false)
       
     } else if (pattern.type === 'biased-lsb' || pattern.type === 'biased-msb') {
-      const sigs = pattern.signatures.slice(0, 10)
-      const scale = 10000000n
+      const sigs = pattern.signatures.slice(0, 8)
+      const scale = 10n ** 60n
       const n_scaled = Number(SECP256K1_N / scale)
       
+      const rValues = sigs.map(sig => Number(sig.r / scale))
+      const sValues = sigs.map(sig => Number(sig.s / scale))
+      const maxVal = Math.max(n_scaled, ...rValues, ...sValues, 1)
+      const maxSafe = 2 ** 28
+      const normFactor = maxVal / maxSafe
+      
+      const n_norm = Math.floor(n_scaled / normFactor)
+      const bound = Math.floor(Math.sqrt(n_norm))
+      
       basis = sigs.map((sig, idx) => {
-        const r = Number(sig.r / scale)
-        const s = Number(sig.s / scale)
-        const row = new Array(12).fill(0)
-        row[0] = n_scaled
+        const r = Math.floor(Number(sig.r / scale) / normFactor)
+        const s = Math.floor(Number(sig.s / scale) / normFactor)
+        const row = new Array(sigs.length + 2).fill(0)
+        row[0] = n_norm
         row[idx + 1] = r
         row[idx + 2] = s
         return row
-      }).slice(0, 10)
+      })
       
       name = `Bias Attack - ${pattern.type.toUpperCase()} (${sigs.length} sigs)`
       algo = 'bkz'
@@ -297,6 +333,7 @@ function App() {
       
       setCurrentAttackSignatures(sigs)
       setCurrentWeaknessType('biased-k')
+      setIsNormalized(true)
       
     } else {
       const sigs = pattern.signatures.slice(0, 4)
@@ -313,11 +350,12 @@ function App() {
       
       setCurrentAttackSignatures(sigs)
       setCurrentWeaknessType(pattern.type)
+      setIsNormalized(false)
     }
     
     setAttackType('signature-scan')
     setAttackName(name)
-    setBasisInput(basis.map(row => row.join(' ')).join('\n'))
+    setBasisInput(formatMatrixForDisplay(basis))
     setAlgorithm(algo)
     setBlockSize(bSize.toString())
     setDelta('0.99')
@@ -458,17 +496,18 @@ function App() {
   const handleTemplateSelect = (template: AttackTemplate) => {
     setAttackType(template.type)
     setAttackName(template.name)
-    setBasisInput(template.basis.map(row => row.join(' ')).join('\n'))
+    setBasisInput(formatMatrixForDisplay(template.basis))
     setDelta(template.delta.toString())
     setResult(null)
     setVisualizationSteps([])
+    setIsNormalized(false)
     toast.success(`Loaded template: ${template.name}`)
   }
 
   const handleRerun = (history: AttackHistory) => {
     setAttackType(history.config.type)
     setAttackName(history.config.name)
-    setBasisInput(history.config.basis.map(row => row.join(' ')).join('\n'))
+    setBasisInput(formatMatrixForDisplay(history.config.basis))
     setDelta(history.config.delta.toString())
     setAlgorithm(history.config.algorithm || 'lll')
     if (history.config.blockSize) {
@@ -658,6 +697,14 @@ function App() {
                       label="Lattice Basis Matrix"
                       placeholder="Enter basis vectors (one per line):"
                     />
+                    
+                    {isNormalized && (
+                      <Alert className="border-accent/50 bg-accent/10">
+                        <AlertDescription className="text-xs">
+                          ℹ️ Matrix normalized for numerical stability. Scaled down from secp256k1 values to prevent overflow in JavaScript.
+                        </AlertDescription>
+                      </Alert>
+                    )}
 
                     <div>
                       <Label htmlFor="delta" className="text-sm font-medium mb-2 block">
