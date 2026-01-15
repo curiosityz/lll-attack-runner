@@ -7,8 +7,11 @@ import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Separator } from '@/components/ui/separator'
 import { ScrollArea } from '@/components/ui/scroll-area'
-import { MagnifyingGlass, Target, CheckCircle, Warning, Lightning } from '@phosphor-icons/react'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { MagnifyingGlass, Target, CheckCircle, Warning, Lightning, CurrencyBtc, CurrencyEth } from '@phosphor-icons/react'
 import { toast } from 'sonner'
+import { blockchainExplorer } from '@/lib/blockchain-explorer'
+import { analyzeSignatures } from '@/lib/signatureAnalyzer'
 
 interface AddressData {
   address: string
@@ -34,8 +37,19 @@ interface AddressLookupProps {
 
 export function AddressLookup({ onAttackGenerated }: AddressLookupProps) {
   const [address, setAddress] = useState('')
+  const [chain, setChain] = useState<'bitcoin' | 'ethereum' | 'bitcoin-testnet'>('bitcoin')
   const [isSearching, setIsSearching] = useState(false)
   const [addressData, setAddressData] = useState<AddressData | null>(null)
+
+  const EXAMPLE_ADDRESSES = {
+    bitcoin: '1FWGcVDK3JGzCC3WtkYetULPszMaK2Jksv',
+    'bitcoin-testnet': 'mkHS9ne12qx9pS9VojpwU5xtRd4T7X7ZUt',
+    ethereum: '0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045'
+  }
+
+  const handleExampleAddress = () => {
+    setAddress(EXAMPLE_ADDRESSES[chain])
+  }
 
   const handleSearch = async () => {
     if (!address.trim()) {
@@ -47,74 +61,90 @@ export function AddressLookup({ onAttackGenerated }: AddressLookupProps) {
     setAddressData(null)
 
     try {
-      await new Promise(resolve => setTimeout(resolve, 1500))
+      toast.info('Fetching blockchain data...', {
+        description: 'Analyzing transactions for vulnerabilities'
+      })
 
-      const isTargetAddress = address === '1FWGcVDK3JGzCC3WtkYetULPszMaK2Jksv'
-      
-      if (isTargetAddress) {
-        const mockSignatures = [
-          {
-            r: '0x79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798',
-            s: '0x483ada7726a3c4655da4fbfc0e1108a8fd17b448a68554199c47d08ffb10d4b8',
-            z: '0x4b688df40bcedbe641ddb16ff0a1842d9c67ea1c3bf63f3e0471baa664531d1a',
-            txid: '9ec4bc49e828d924af1d1029cacf709431abbde46d59554b62bc270e3b29c4b1'
-          },
-          {
-            r: '0x79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798',
-            s: '0x3c5b8f6c8b2a94f7d89e3e5f8c3b9d2a8f5c6b7a9d3c8f5b6e7a9d3c8f5b6e7a',
-            z: '0x7c5b2a89f5c3d8e6b7a9d3c8f5b6e7a9d3c8f5b6e7a9d3c8f5b6e7a9d3c8f5b6',
-            txid: 'e5c4ac19f828a924bf2d2039dacf709431abbde46d59554b62bc270e3b39d5c2'
+      const sigData = await blockchainExplorer.analyzeAddressSignatures(address, chain)
+
+      if (sigData.signatures.length === 0) {
+        setAddressData({
+          address,
+          status: 'not-found',
+          metadata: {
+            totalTransactions: sigData.totalTransactions,
+            vulnerableCount: 0,
+            confidence: 0
           }
-        ]
+        })
+
+        toast.warning('No signatures found', {
+          description: `Found ${sigData.totalTransactions} transactions but no extractable signatures`
+        })
+        setIsSearching(false)
+        return
+      }
+
+      const parsedSignatures = sigData.signatures.map(sig => ({
+        r: BigInt(sig.r),
+        s: BigInt(sig.s),
+        v: 27,
+        hash: sig.z,
+        address: address,
+        timestamp: sig.timestamp,
+        blockNumber: sig.blockNumber,
+        txNonce: 0
+      }))
+
+      const analysis = analyzeSignatures(parsedSignatures)
+
+      const vulnerableCount = analysis.weakSignatures.length + analysis.patterns.length
+
+      if (vulnerableCount > 0) {
+        const primaryWeakness = analysis.weakSignatures[0]?.weakness || 
+                               (analysis.patterns[0]?.type === 'nonce-reuse' ? 'nonce-reuse' : 'biased-k')
 
         setAddressData({
           address,
           status: 'found',
-          weaknessType: 'nonce-reuse',
-          signatures: mockSignatures,
+          weaknessType: primaryWeakness as any,
+          signatures: sigData.signatures,
           attackReady: true,
           metadata: {
-            totalTransactions: 15,
-            vulnerableCount: 2,
-            confidence: 0.95
+            totalTransactions: sigData.totalTransactions,
+            vulnerableCount,
+            confidence: vulnerableCount > 3 ? 0.95 : vulnerableCount > 1 ? 0.75 : 0.6
           }
         })
 
-        toast.success('Vulnerability detected!', {
-          description: 'Nonce reuse found in multiple transactions'
+        toast.success('Vulnerabilities detected!', {
+          description: `Found ${vulnerableCount} potential weaknesses`
         })
       } else {
         setAddressData({
           address,
           status: 'found',
-          weaknessType: Math.random() > 0.5 ? 'nonce-reuse' : 'weak-nonce',
-          signatures: [
-            {
-              r: '0x' + Array.from({ length: 64 }, () => Math.floor(Math.random() * 16).toString(16)).join(''),
-              s: '0x' + Array.from({ length: 64 }, () => Math.floor(Math.random() * 16).toString(16)).join(''),
-              z: '0x' + Array.from({ length: 64 }, () => Math.floor(Math.random() * 16).toString(16)).join(''),
-              txid: Array.from({ length: 64 }, () => Math.floor(Math.random() * 16).toString(16)).join('')
-            }
-          ],
-          attackReady: true,
+          signatures: sigData.signatures,
+          attackReady: false,
           metadata: {
-            totalTransactions: Math.floor(Math.random() * 50) + 1,
-            vulnerableCount: Math.floor(Math.random() * 5) + 1,
-            confidence: 0.6 + Math.random() * 0.3
+            totalTransactions: sigData.totalTransactions,
+            vulnerableCount: 0,
+            confidence: 0.3
           }
         })
 
-        toast.success('Address analyzed', {
-          description: 'Potential weakness detected'
+        toast.info('Address analyzed', {
+          description: 'No obvious vulnerabilities detected in signatures'
         })
       }
     } catch (error) {
+      console.error('Search error:', error)
       setAddressData({
         address,
         status: 'error'
       })
       toast.error('Search failed', {
-        description: 'Unable to analyze address'
+        description: error instanceof Error ? error.message : 'Unable to analyze address'
       })
     } finally {
       setIsSearching(false)
@@ -214,43 +244,87 @@ export function AddressLookup({ onAttackGenerated }: AddressLookupProps) {
       <div className="mb-6">
         <h2 className="text-xl font-bold flex items-center gap-2 mb-2">
           <span className="w-1 h-6 bg-primary rounded-full"></span>
-          Address Lookup & Attack
+          Address Vulnerability Scanner
         </h2>
         <p className="text-sm text-muted-foreground">
-          Enter a Bitcoin address to check for known vulnerabilities and generate an attack.
+          Fetch real blockchain data and analyze signatures for cryptographic weaknesses.
         </p>
       </div>
 
       <div className="space-y-4">
         <div>
+          <Label htmlFor="chain-select" className="text-sm font-medium mb-2 block">
+            Blockchain
+          </Label>
+          <Select value={chain} onValueChange={(v) => setChain(v as any)}>
+            <SelectTrigger id="chain-select">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="bitcoin">
+                <div className="flex items-center gap-2">
+                  <CurrencyBtc size={16} weight="duotone" />
+                  Bitcoin Mainnet
+                </div>
+              </SelectItem>
+              <SelectItem value="bitcoin-testnet">
+                <div className="flex items-center gap-2">
+                  <CurrencyBtc size={16} weight="duotone" />
+                  Bitcoin Testnet
+                </div>
+              </SelectItem>
+              <SelectItem value="ethereum">
+                <div className="flex items-center gap-2">
+                  <CurrencyEth size={16} weight="duotone" />
+                  Ethereum Mainnet
+                </div>
+              </SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+
+        <div>
           <Label htmlFor="address-input" className="text-sm font-medium mb-2 block">
-            Bitcoin Address
+            Address
           </Label>
           <div className="flex gap-2">
             <Input
               id="address-input"
               value={address}
               onChange={(e) => setAddress(e.target.value)}
-              placeholder="1FWGcVDK3JGzCC3WtkYetULPszMaK2Jksv"
+              placeholder="Enter blockchain address..."
               className="font-mono text-sm"
               onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
             />
             <Button
               onClick={handleSearch}
-              disabled={isSearching}
+              disabled={isSearching || !address.trim()}
               className="bg-gradient-to-r from-primary to-accent hover:from-primary/90 hover:to-accent/90 shadow-lg shadow-primary/20 px-6"
             >
               {isSearching ? (
                 <>
                   <div className="animate-spin mr-2 h-4 w-4 border-2 border-primary-foreground border-t-transparent rounded-full" />
-                  Searching...
+                  Analyzing...
                 </>
               ) : (
                 <>
                   <MagnifyingGlass size={18} weight="duotone" />
-                  Search
+                  Scan
                 </>
               )}
+            </Button>
+          </div>
+          <div className="flex items-center justify-between mt-1.5">
+            <p className="text-xs text-muted-foreground">
+              Fetches from Blockchair, Blockchain.com, and BlockCypher APIs
+            </p>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={handleExampleAddress}
+              className="text-xs h-7 text-accent hover:text-accent hover:bg-accent/10"
+            >
+              Use Example
             </Button>
           </div>
         </div>
@@ -337,6 +411,13 @@ export function AddressLookup({ onAttackGenerated }: AddressLookupProps) {
                   Generate Attack Vector
                 </Button>
               </div>
+            ) : addressData.status === 'not-found' ? (
+              <Alert className="border-warning/50 bg-warning/10">
+                <AlertDescription className="flex items-center gap-2">
+                  <Warning size={18} weight="fill" className="text-warning" />
+                  <span className="font-medium">No signatures found in transactions</span>
+                </AlertDescription>
+              </Alert>
             ) : addressData.status === 'error' ? (
               <Alert className="border-destructive/50 bg-destructive/10">
                 <AlertDescription className="flex items-center gap-2">
@@ -348,7 +429,7 @@ export function AddressLookup({ onAttackGenerated }: AddressLookupProps) {
               <Alert className="border-muted bg-muted/10">
                 <AlertDescription className="flex items-center gap-2">
                   <CheckCircle size={18} weight="fill" className="text-muted-foreground" />
-                  <span className="font-medium">No vulnerabilities detected</span>
+                  <span className="font-medium">No obvious vulnerabilities detected</span>
                 </AlertDescription>
               </Alert>
             )}

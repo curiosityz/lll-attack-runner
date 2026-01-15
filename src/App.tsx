@@ -527,10 +527,6 @@ function App() {
           </TabsList>
 
           <TabsContent value="upload" className="space-y-6">
-            <BlockchainExplorerIntegration 
-              onTransactionsFetched={handleExplorerTransactions}
-              onSignaturesExtracted={handleExplorerSignatures}
-            />
             <AddressLookup onAttackGenerated={handleAddressAttack} />
             <DataUpload onDataParsed={handleDataParsed} />
           </TabsContent>
