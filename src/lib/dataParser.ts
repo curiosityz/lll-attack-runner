@@ -1,4 +1,10 @@
 import { extractSighashFromRawTx, calculateSighashFromComponents } from './sighashCalculator'
+import { 
+  parseBlockchairTSV, 
+  detectBlockchairFileType, 
+  convertToAnalyzerFormat,
+  parseDERSignature as parseBlockchairDER
+} from './blockchair-parser'
 
 export interface ParsedTransaction {
   hash: string
@@ -236,6 +242,155 @@ function parseCSVFormat(content: string): ParseResult {
   }
 }
 
+/**
+ * Parse TSV format data (tab-separated values)
+ * Supports Blockchair-style inputs with signature data
+ */
+function parseTSVFormat(content: string): ParseResult {
+  const signatures: ParsedSignature[] = []
+  const transactions: ParsedTransaction[] = []
+  const parseErrors: string[] = []
+
+  const lines = content.split('\n').filter(line => line.trim())
+  if (lines.length === 0) {
+    return { signatures, transactions, format: 'text', totalParsed: 0, parseErrors: ['Empty file'] }
+  }
+
+  // Check if this looks like a Blockchair format
+  const firstLine = lines[0].toLowerCase()
+  if (firstLine.includes('spending_signature') || 
+      firstLine.includes('spending_witness') || 
+      firstLine.includes('script_hex')) {
+    // Use the Blockchair parser for proper signature extraction
+    const fileType = detectBlockchairFileType(content)
+    if (fileType === 'inputs') {
+      const blockchairResult = parseBlockchairTSV(content, 'inputs')
+      const parsedSigs = convertToAnalyzerFormat(blockchairResult.signatures)
+      return {
+        signatures: parsedSigs,
+        transactions: parsedSigs.map(sig => ({
+          hash: sig.hash,
+          from: sig.address,
+          to: null,
+          r: sig.r.toString(16),
+          s: sig.s.toString(16),
+          v: sig.v.toString(),
+          blockNumber: sig.blockNumber,
+          timestamp: sig.timestamp
+        })),
+        format: 'text',
+        totalParsed: parsedSigs.length,
+        parseErrors: blockchairResult.parseErrors.slice(0, 50)
+      }
+    }
+  }
+
+  // Parse generic TSV with r, s columns
+  const headers = lines[0].toLowerCase().split('\t').map(h => h.trim())
+  
+  const rIdx = headers.findIndex(h => h === 'r' || h.includes('signature') && h.includes('r'))
+  const sIdx = headers.findIndex(h => h === 's' || h.includes('signature') && h.includes('s'))
+  const vIdx = headers.findIndex(h => h === 'v')
+  const hashIdx = headers.findIndex(h => h.includes('hash') || h === 'tx' || h.includes('transaction'))
+  const fromIdx = headers.findIndex(h => h === 'from' || h === 'address' || h === 'sender' || h === 'recipient')
+  const blockIdx = headers.findIndex(h => h.includes('block'))
+  const timeIdx = headers.findIndex(h => h.includes('time') || h.includes('timestamp'))
+  const sigHexIdx = headers.findIndex(h => h.includes('signature_hex') || h.includes('spending_signature'))
+
+  // If we have r and s columns, parse them directly
+  if (rIdx >= 0 && sIdx >= 0) {
+    for (let i = 1; i < lines.length; i++) {
+      try {
+        const cols = lines[i].split('\t').map(c => c.trim().replace(/^["']|["']$/g, ''))
+        
+        const r = cols[rIdx]
+        const s = cols[sIdx]
+        const v = vIdx >= 0 ? cols[vIdx] : '0'
+        const hash = hashIdx >= 0 ? cols[hashIdx] : `tx_${i}`
+        const from = fromIdx >= 0 ? cols[fromIdx] : 'unknown'
+
+        if (r && s) {
+          const rBig = hexToBigInt(r)
+          const sBig = hexToBigInt(s)
+          const vNum = parseInt(v, 10) || 0
+
+          if (rBig > 0n && sBig > 0n) {
+            signatures.push({
+              r: rBig,
+              s: sBig,
+              v: vNum,
+              hash,
+              address: from,
+              blockNumber: blockIdx >= 0 ? parseInt(cols[blockIdx]) : undefined,
+              timestamp: timeIdx >= 0 ? parseInt(cols[timeIdx]) : undefined
+            })
+
+            transactions.push({
+              hash,
+              from,
+              to: null,
+              r,
+              s,
+              v,
+              blockNumber: blockIdx >= 0 ? parseInt(cols[blockIdx]) : undefined,
+              timestamp: timeIdx >= 0 ? parseInt(cols[timeIdx]) : undefined
+            })
+          }
+        }
+      } catch (error) {
+        parseErrors.push(`Line ${i + 1}: ${error instanceof Error ? error.message : 'Parse error'}`)
+      }
+    }
+  } 
+  // If we have a signature_hex column, parse DER signatures
+  else if (sigHexIdx >= 0) {
+    for (let i = 1; i < lines.length; i++) {
+      try {
+        const cols = lines[i].split('\t').map(c => c.trim())
+        const sigHex = cols[sigHexIdx]
+        const hash = hashIdx >= 0 ? cols[hashIdx] : `tx_${i}`
+        const from = fromIdx >= 0 ? cols[fromIdx] : 'unknown'
+
+        if (sigHex && sigHex.length > 10) {
+          const parsed = parseBlockchairDER(sigHex)
+          if (parsed) {
+            signatures.push({
+              r: parsed.r,
+              s: parsed.s,
+              v: parsed.sighashType,
+              hash,
+              address: from,
+              blockNumber: blockIdx >= 0 ? parseInt(cols[blockIdx]) : undefined,
+              timestamp: timeIdx >= 0 ? parseInt(cols[timeIdx]) : undefined
+            })
+
+            transactions.push({
+              hash,
+              from,
+              to: null,
+              r: parsed.r.toString(16),
+              s: parsed.s.toString(16),
+              v: parsed.sighashType.toString(),
+              blockNumber: blockIdx >= 0 ? parseInt(cols[blockIdx]) : undefined,
+              timestamp: timeIdx >= 0 ? parseInt(cols[timeIdx]) : undefined
+            })
+          }
+        }
+      } catch (error) {
+        parseErrors.push(`Line ${i + 1}: ${error instanceof Error ? error.message : 'Parse error'}`)
+      }
+    }
+  }
+
+  return {
+    signatures,
+    transactions,
+    format: 'text',
+    totalParsed: signatures.length,
+    parseErrors: parseErrors.slice(0, 50)
+  }
+}
+
 function parseTextFormat(content: string): ParseResult {
   const signatures: ParsedSignature[] = []
   const transactions: ParsedTransaction[] = []
@@ -358,16 +513,35 @@ export function parseTransactionData(content: string): ParseResult {
     }
   }
 
+  // Try JSON first
   try {
     const data = JSON.parse(trimmed)
     return parseJSONFormat(data)
   } catch {
-    
+    // Not JSON, continue to other formats
   }
 
+  // Check for TSV format (tab-separated values)
+  // TSV is common for Blockchair dumps
+  const firstLine = trimmed.split('\n')[0]
+  if (firstLine.includes('\t')) {
+    const lowerFirstLine = firstLine.toLowerCase()
+    // Check for Blockchair-style headers or generic TSV with signature data
+    if (lowerFirstLine.includes('transaction') || 
+        lowerFirstLine.includes('signature') ||
+        lowerFirstLine.includes('spending') ||
+        lowerFirstLine.includes('witness') ||
+        lowerFirstLine.includes('script') ||
+        lowerFirstLine.includes('block_id') ||
+        (lowerFirstLine.includes('r') && lowerFirstLine.includes('s'))) {
+      return parseTSVFormat(trimmed)
+    }
+  }
+
+  // Check for CSV format (comma-separated)
   if (trimmed.includes(',') && (trimmed.includes('\n') || trimmed.includes('\r'))) {
-    const firstLine = trimmed.split('\n')[0].toLowerCase()
-    if (firstLine.includes('r') || firstLine.includes('s') || firstLine.includes('signature')) {
+    const csvFirstLine = trimmed.split('\n')[0].toLowerCase()
+    if (csvFirstLine.includes('r') || csvFirstLine.includes('s') || csvFirstLine.includes('signature')) {
       return parseCSVFormat(trimmed)
     }
   }
