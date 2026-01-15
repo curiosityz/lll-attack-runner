@@ -24,12 +24,14 @@ import { VectorVisualization } from '@/components/VectorVisualization'
 import { MatrixHeatmap } from '@/components/MatrixHeatmap'
 import { OrthogonalityChart } from '@/components/OrthogonalityChart'
 import { DataUpload } from '@/components/DataUpload'
+import { BlockchairUpload } from '@/components/BlockchairUpload'
 import { AnalysisDisplay } from '@/components/AnalysisDisplay'
 import { AddressLookup } from '@/components/AddressLookup'
 import { BlockchainExplorerIntegration } from '@/components/BlockchainExplorerIntegration'
 import { SighashCalculator } from '@/components/SighashCalculator'
 import { ParsedSignature, ParseResult } from '@/lib/dataParser'
 import { analyzeSignatures, AnalysisResult, WeakSignature, PatternCluster } from '@/lib/signatureAnalyzer'
+import { ExtractedSignature } from '@/lib/blockchair-parser'
 import { ExplorerTransaction } from '@/lib/blockchain-explorer'
 import { extractPrivateKeyFromAttack, PrivateKeyResult } from '@/lib/privateKeyExtractor'
 import { PrivateKeyDisplay } from '@/components/PrivateKeyDisplay'
@@ -115,6 +117,7 @@ function App() {
   const [templateDialogOpen, setTemplateDialogOpen] = useState(false)
   
   const [uploadedSignatures, setUploadedSignatures] = useState<ParsedSignature[]>([])
+  const [blockchairRawSignatures, setBlockchairRawSignatures] = useState<ExtractedSignature[]>([])
   const [analysisResult, setAnalysisResult] = useState<AnalysisResult | null>(null)
   const [isAnalyzing, setIsAnalyzing] = useState(false)
   const [activeTab, setActiveTab] = useState('upload')
@@ -218,6 +221,28 @@ function App() {
         toast.success('Analysis complete!', {
           description: `Found ${result.weakSignatures.length} weaknesses and ${result.patterns.length} patterns`
         })
+      }
+    }, 500)
+  }
+
+  const handleBlockchairSignatures = (signatures: ParsedSignature[], rawSignatures: ExtractedSignature[]) => {
+    setUploadedSignatures(signatures)
+    setBlockchairRawSignatures(rawSignatures)
+    setIsAnalyzing(true)
+    
+    setTimeout(() => {
+      const result = analyzeSignatures(signatures)
+      setAnalysisResult(result)
+      setIsAnalyzing(false)
+      
+      // Count vulnerabilities from raw Blockchair data
+      const vulnCount = rawSignatures.filter(s => s.vulnerabilities.length > 0).length
+      
+      if (result.weakSignatures.length > 0 || result.patterns.length > 0 || vulnCount > 0) {
+        toast.success('Blockchair analysis complete!', {
+          description: `Found ${result.weakSignatures.length + vulnCount} weaknesses and ${result.patterns.length} patterns`
+        })
+        setActiveTab('analyze')
       }
     }, 500)
   }
@@ -757,9 +782,10 @@ function App() {
               <Lightbulb size={18} className="text-accent" weight="duotone" />
               <AlertDescription className="text-sm">
                 <strong>⚠️ Browser Security Limitation:</strong> Direct blockchain API access is blocked by browser CORS policies. 
-                <strong> Solution:</strong> Upload signature data files (JSON/CSV) directly for full functionality.
+                <strong> Solution:</strong> Upload signature data files (JSON/CSV/TSV) directly for full functionality.
               </AlertDescription>
             </Alert>
+            <BlockchairUpload onSignaturesExtracted={handleBlockchairSignatures} />
             <AddressLookup onAttackGenerated={handleAddressAttack} />
             <DataUpload onDataParsed={handleDataParsed} />
           </TabsContent>
