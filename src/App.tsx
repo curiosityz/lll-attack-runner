@@ -24,6 +24,7 @@ import { MatrixHeatmap } from '@/components/MatrixHeatmap'
 import { OrthogonalityChart } from '@/components/OrthogonalityChart'
 import { DataUpload } from '@/components/DataUpload'
 import { AnalysisDisplay } from '@/components/AnalysisDisplay'
+import { AddressLookup } from '@/components/AddressLookup'
 import { ParsedSignature, ParseResult } from '@/lib/dataParser'
 import { analyzeSignatures, AnalysisResult, WeakSignature, PatternCluster } from '@/lib/signatureAnalyzer'
 
@@ -54,6 +55,23 @@ function App() {
   const [uploadedSignatures, setUploadedSignatures] = useState<ParsedSignature[]>([])
   const [analysisResult, setAnalysisResult] = useState<AnalysisResult | null>(null)
   const [isAnalyzing, setIsAnalyzing] = useState(false)
+  const [activeTab, setActiveTab] = useState('upload')
+
+  const handleAddressAttack = (address: string, basis: number[][], attackName: string) => {
+    setAttackType('signature-scan')
+    setAttackName(attackName)
+    setBasisInput(basis.map(row => row.join(' ')).join('\n'))
+    setAlgorithm('bkz')
+    setBlockSize('20')
+    setDelta('0.99')
+    setResult(null)
+    setVisualizationSteps([])
+    setActiveTab('attack')
+    
+    toast.success('Attack vector loaded!', {
+      description: `Configured for ${address.slice(0, 10)}...`
+    })
+  }
 
   const handleDataParsed = (signatures: ParsedSignature[], parseResult: ParseResult) => {
     setUploadedSignatures(signatures)
@@ -383,7 +401,7 @@ function App() {
           </div>
         </header>
 
-        <Tabs defaultValue="upload" className="space-y-6">
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
           <TabsList className="grid w-full grid-cols-5 max-w-3xl h-auto p-1.5 bg-card/50 backdrop-blur-sm border border-border/60">
             <TabsTrigger value="upload" className="flex items-center justify-center gap-2 data-[state=active]:bg-primary/15 data-[state=active]:text-primary py-2.5 px-3">
               <UploadSimple size={18} weight="duotone" />
@@ -408,6 +426,7 @@ function App() {
           </TabsList>
 
           <TabsContent value="upload" className="space-y-6">
+            <AddressLookup onAttackGenerated={handleAddressAttack} />
             <DataUpload onDataParsed={handleDataParsed} />
           </TabsContent>
 
@@ -688,10 +707,7 @@ function App() {
                   <Button 
                     variant="outline" 
                     size="sm"
-                    onClick={() => {
-                      const tabs = document.querySelector('[value="attack"]') as HTMLElement
-                      tabs?.click()
-                    }}
+                    onClick={() => setActiveTab('attack')}
                     className="border-primary/30 hover:bg-primary/10"
                   >
                     Go to Attack Tab
