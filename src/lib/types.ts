@@ -26,6 +26,10 @@ export interface AttackResult {
   algorithm?: AlgorithmType
   blockSize?: number
   weaknessDetected?: string
+  privateKey?: string
+  privateKeyValid?: boolean
+  derivedAddress?: string
+  keyExtractionConfidence?: number
 }
 
 export interface AttackHistory {

@@ -2,7 +2,7 @@ import { Card } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { AttackHistory } from '@/lib/types'
-import { ClockClockwise, CheckCircle, XCircle } from '@phosphor-icons/react'
+import { ClockClockwise, CheckCircle, XCircle, Key, ShieldCheck } from '@phosphor-icons/react'
 
 interface AttackCardProps {
   history: AttackHistory
@@ -25,6 +25,15 @@ export function AttackCard({ history, onRerun }: AttackCardProps) {
             >
               {config.type}
             </Badge>
+            {result.privateKey && (
+              <Badge 
+                variant="default"
+                className="bg-success/30 text-success border-success/50"
+              >
+                <Key size={12} weight="fill" className="mr-1" />
+                Key
+              </Badge>
+            )}
           </div>
           <p className="text-xs text-muted-foreground flex items-center gap-1.5">
             <ClockClockwise size={12} weight="duotone" />
@@ -43,6 +52,28 @@ export function AttackCard({ history, onRerun }: AttackCardProps) {
           )}
         </div>
       </div>
+
+      {result.privateKey && (
+        <div className="mb-4 p-3 rounded-lg bg-success/10 border border-success/30">
+          <div className="flex items-center gap-2 mb-2">
+            <ShieldCheck size={16} className="text-success" weight="fill" />
+            <span className="text-xs font-bold text-success uppercase tracking-wider">
+              Private Key Extracted
+            </span>
+            {result.privateKeyValid && (
+              <CheckCircle size={12} className="text-success" weight="fill" />
+            )}
+          </div>
+          <div className="font-mono text-xs text-muted-foreground break-all mb-1">
+            {result.privateKey.slice(0, 20)}...{result.privateKey.slice(-10)}
+          </div>
+          {result.keyExtractionConfidence && (
+            <div className="text-xs text-muted-foreground">
+              Confidence: {(result.keyExtractionConfidence * 100).toFixed(0)}%
+            </div>
+          )}
+        </div>
+      )}
 
       <div className="grid grid-cols-2 gap-3 mb-4">
         <div className="p-3 rounded-lg bg-secondary/30 border border-border/40">

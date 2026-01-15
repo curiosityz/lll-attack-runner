@@ -29,6 +29,8 @@ import { BlockchainExplorerIntegration } from '@/components/BlockchainExplorerIn
 import { ParsedSignature, ParseResult } from '@/lib/dataParser'
 import { analyzeSignatures, AnalysisResult, WeakSignature, PatternCluster } from '@/lib/signatureAnalyzer'
 import { ExplorerTransaction } from '@/lib/blockchain-explorer'
+import { extractPrivateKeyFromAttack, PrivateKeyResult } from '@/lib/privateKeyExtractor'
+import { PrivateKeyDisplay } from '@/components/PrivateKeyDisplay'
 
 function App() {
   const [attackHistory, setAttackHistory] = useKV<AttackHistory[]>('attack-history', [])
@@ -58,6 +60,9 @@ function App() {
   const [analysisResult, setAnalysisResult] = useState<AnalysisResult | null>(null)
   const [isAnalyzing, setIsAnalyzing] = useState(false)
   const [activeTab, setActiveTab] = useState('upload')
+  const [privateKeyResult, setPrivateKeyResult] = useState<PrivateKeyResult | null>(null)
+  const [currentAttackSignatures, setCurrentAttackSignatures] = useState<ParsedSignature[]>([])
+  const [currentWeaknessType, setCurrentWeaknessType] = useState<string>('')
 
   const handleAddressAttack = (address: string, basis: number[][], attackName: string) => {
     setAttackType('signature-scan')
@@ -161,6 +166,9 @@ function App() {
       name = `Nonce Reuse Attack - ${sig1.hash.slice(0, 10)}`
       algo = 'lll'
       
+      setCurrentAttackSignatures([sig1, sig2, ...(weakness.relatedSignatures || [])])
+      setCurrentWeaknessType('nonce-reuse')
+      
     } else if (weakness.weakness === 'biased-k' || weakness.weakness === 'similar-k') {
       const scale = 1000000000n
       const n_scaled = Number(SECP256K1_N / scale)
@@ -177,6 +185,9 @@ function App() {
       algo = 'bkz'
       bSize = 15
       
+      setCurrentAttackSignatures([weakness.signature])
+      setCurrentWeaknessType(weakness.weakness)
+      
     } else if (weakness.weakness === 'small-r') {
       const r_num = Number(weakness.signature.r)
       const s_num = Number(weakness.signature.s)
@@ -187,6 +198,9 @@ function App() {
       ]
       name = `Small R Attack - ${weakness.signature.hash.slice(0, 10)}`
       algo = 'lll'
+      
+      setCurrentAttackSignatures([weakness.signature])
+      setCurrentWeaknessType('small-r')
       
     } else {
       const scale = 1000000n
@@ -199,6 +213,9 @@ function App() {
       ]
       name = `Generic Attack - ${weakness.weakness}`
       algo = 'lll'
+      
+      setCurrentAttackSignatures([weakness.signature])
+      setCurrentWeaknessType(weakness.weakness)
     }
     
     setAttackType('signature-scan')
@@ -208,6 +225,7 @@ function App() {
     setBlockSize(bSize.toString())
     setResult(null)
     setVisualizationSteps([])
+    setPrivateKeyResult(null)
     
     toast.success('Attack configured!', {
       description: `Ready to run ${algo.toUpperCase()} attack`
@@ -238,6 +256,9 @@ function App() {
       algo = 'bkz'
       bSize = Math.min(sigs.length + 5, 25)
       
+      setCurrentAttackSignatures(sigs)
+      setCurrentWeaknessType('nonce-reuse')
+      
     } else if (pattern.type === 'sequential') {
       const sigs = pattern.signatures.slice(0, 5)
       const scale = 1000000n
@@ -250,6 +271,9 @@ function App() {
       name = `Sequential Pattern Attack (${sigs.length} sigs)`
       algo = 'bkz'
       bSize = 18
+      
+      setCurrentAttackSignatures(sigs)
+      setCurrentWeaknessType('sequential-k')
       
     } else if (pattern.type === 'biased-lsb' || pattern.type === 'biased-msb') {
       const sigs = pattern.signatures.slice(0, 10)
@@ -270,6 +294,9 @@ function App() {
       algo = 'bkz'
       bSize = 22
       
+      setCurrentAttackSignatures(sigs)
+      setCurrentWeaknessType('biased-k')
+      
     } else {
       const sigs = pattern.signatures.slice(0, 4)
       const scale = 1000000n
@@ -282,6 +309,9 @@ function App() {
       name = `Pattern Attack - ${pattern.type}`
       algo = 'bkz'
       bSize = 15
+      
+      setCurrentAttackSignatures(sigs)
+      setCurrentWeaknessType(pattern.type)
     }
     
     setAttackType('signature-scan')
@@ -292,6 +322,7 @@ function App() {
     setDelta('0.99')
     setResult(null)
     setVisualizationSteps([])
+    setPrivateKeyResult(null)
     
     toast.success('Pattern attack configured!', {
       description: `Using ${algo.toUpperCase()} with block size ${bSize}`
@@ -322,6 +353,7 @@ function App() {
     setIsRunning(true)
     setResult(null)
     setVisualizationSteps([])
+    setPrivateKeyResult(null)
 
     await new Promise(resolve => setTimeout(resolve, 100))
 
@@ -362,6 +394,29 @@ function App() {
       setCurrentVisualizationStep(0)
     }
 
+    let privateKeyExtractionResult: PrivateKeyResult | null = null
+    if (lllResult.success && currentAttackSignatures.length > 0) {
+      privateKeyExtractionResult = extractPrivateKeyFromAttack(
+        lllResult.solutionVector,
+        currentAttackSignatures,
+        currentWeaknessType
+      )
+      
+      if (privateKeyExtractionResult) {
+        setPrivateKeyResult(privateKeyExtractionResult)
+        
+        if (privateKeyExtractionResult.isValid) {
+          toast.success('Private key extracted and validated!', {
+            description: 'Key successfully recovered from attack'
+          })
+        } else {
+          toast.warning('Private key extracted but validation uncertain', {
+            description: 'Extracted key may need manual verification'
+          })
+        }
+      }
+    }
+
     const newHistory: AttackHistory = {
       config: {
         id: Date.now().toString(),
@@ -382,7 +437,11 @@ function App() {
         executionTime,
         timestamp: Date.now(),
         algorithm,
-        blockSize: algorithm === 'bkz' ? lllResult.blockSize : undefined
+        blockSize: algorithm === 'bkz' ? lllResult.blockSize : undefined,
+        privateKey: privateKeyExtractionResult?.privateKeyHex,
+        privateKeyValid: privateKeyExtractionResult?.isValid,
+        derivedAddress: privateKeyExtractionResult?.derivedAddress,
+        keyExtractionConfidence: privateKeyExtractionResult?.confidence
       }
     }
 
@@ -691,6 +750,10 @@ function App() {
                         </AlertDescription>
                       </Alert>
                     </Card>
+
+                    {privateKeyResult && (
+                      <PrivateKeyDisplay result={privateKeyResult} />
+                    )}
 
                     <VectorDisplay
                       matrix={result.reducedBasis}
