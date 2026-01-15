@@ -248,6 +248,102 @@ The `PrecisionWarning` component alerts users when values approach precision lim
 <PrecisionWarning values={matrixValues.flat()} />
 ```
 
+## Rational Arithmetic for High-Precision Lattice Reduction
+
+The library now includes exact rational arithmetic for LLL/BKZ computations, inspired by established libraries like fpylll and SageMath:
+
+### Key Features
+
+1. **Exact Gram-Schmidt Coefficients**: The μ coefficients are computed using rational numbers (numerator/denominator pairs), eliminating floating-point rounding errors.
+
+2. **Exact Lovász Condition**: The condition `||B*_k||² ≥ (δ - μ_{k,k-1}²) * ||B*_{k-1}||²` is checked using exact rational comparison.
+
+3. **Proper Size Reduction**: Rounding to integers uses banker's rounding (round half to even) for optimal numerical behavior.
+
+### Implementation Files
+
+- `rational.ts` - Rational number class with exact arithmetic operations
+- `high-precision-lll.ts` - LLL and BKZ algorithms using rational arithmetic
+
+### When Rational Arithmetic is Used
+
+The `precision-wrapper.ts` automatically selects the appropriate algorithm:
+- Small values (within JavaScript's safe integer range): Standard floating-point LLL
+- Large values (cryptographic size): High-precision rational arithmetic LLL
+
+## External Tools for Production Use
+
+For production-critical cryptographic research, consider using these established libraries:
+
+### fpylll / fplll
+
+The [fplll library](https://github.com/fplll/fplll) is the gold standard for lattice reduction:
+
+```bash
+# Install fpylll (Python wrapper for fplll)
+pip install fpylll
+
+# Python usage example
+from fpylll import IntegerMatrix, LLL, BKZ
+
+# Create matrix
+A = IntegerMatrix.from_matrix([[...], [...], ...])
+
+# LLL reduction
+LLL.reduction(A)
+
+# BKZ reduction with block size 20
+BKZ.reduction(A, BKZ.Param(block_size=20))
+```
+
+### SageMath
+
+[SageMath](https://www.sagemath.org/) provides comprehensive lattice tools:
+
+```python
+# SageMath usage
+from sage.all import *
+
+# Create matrix
+M = matrix(ZZ, [[...], [...], ...])
+
+# LLL reduction
+L = M.LLL()
+
+# BKZ reduction
+B = M.BKZ(block_size=20)
+
+# For HNP attacks
+from sage.modules.free_module_integer import IntegerLattice
+lattice = IntegerLattice(M)
+short_vectors = lattice.shortest_vectors()
+```
+
+### Why Use External Tools?
+
+1. **Performance**: fplll is written in C++ with extensive optimizations
+2. **Algorithms**: Support for BKZ 2.0, slide reduction, and other advanced methods
+3. **Testing**: Decades of testing in cryptographic research
+4. **Precision**: Multi-precision floating-point (MPFR) for extreme precision
+
+### Integration Pattern
+
+For browser-based applications, use a server-side component:
+
+```typescript
+// Frontend: Send lattice to server
+const response = await fetch('/api/reduce', {
+  method: 'POST',
+  body: JSON.stringify({ basis: lattice, algorithm: 'bkz', blockSize: 20 })
+})
+const result = await response.json()
+
+// Server (Python/SageMath):
+# from flask import Flask, request
+# import fpylll
+# ...
+```
+
 ## Future Enhancements
 
 Potential improvements:
@@ -256,3 +352,5 @@ Potential improvements:
 3. Caching of intermediate results
 4. Support for other elliptic curves (P-256, Ed25519)
 5. Hardware acceleration via Web Crypto API where possible
+6. WebAssembly port of fplll for in-browser high-performance reduction
+7. Integration with lattice estimator for security analysis
