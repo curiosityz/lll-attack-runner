@@ -56,6 +56,30 @@ function mod(n: bigint, m: bigint): bigint {
 }
 
 /**
+ * Safely parses a hex string (with or without 0x prefix) to BigInt.
+ * Returns 0n if parsing fails.
+ */
+function parseHexToBigInt(hexString: string): bigint {
+  if (!hexString) return 0n
+  try {
+    const normalized = hexString.startsWith('0x') ? hexString : '0x' + hexString
+    return BigInt(normalized)
+  } catch {
+    return 0n
+  }
+}
+
+/**
+ * Gets the message hash z from a parsed signature, preserving full 256-bit value.
+ */
+function getMessageHash(sig: ParsedSignature): bigint {
+  if (sig.sighash) {
+    return parseHexToBigInt(sig.sighash)
+  }
+  return parseHexToBigInt(sig.hash)
+}
+
+/**
  * Builds the standard Hidden Number Problem (HNP) lattice for ECDSA attack.
  * 
  * Uses BigInt throughout to preserve full 256-bit precision.
@@ -91,19 +115,14 @@ export function buildHNPLattice(signatures: ParsedSignature[], knownBits: number
       const t = mod(sInv * sig.r, q)
       
       // Get the message hash z - preserve full 256-bit value
-      let z: bigint
-      if (sig.sighash) {
-        z = BigInt(sig.sighash.startsWith('0x') ? sig.sighash : '0x' + sig.sighash)
-      } else {
-        z = BigInt(sig.hash.startsWith('0x') ? sig.hash : '0x' + sig.hash)
-      }
-      
+      const z = getMessageHash(sig)
       const u = mod(sInv * z, q)
       
       tValues.push(t)
       uValues.push(u)
-    } catch {
-      // If modular inverse fails, use zero (signature will be skipped effectively)
+    } catch (error) {
+      // Modular inverse fails when s is not coprime with q (invalid signature)
+      console.warn(`Failed to process signature ${sig.hash}: ${error instanceof Error ? error.message : 'unknown error'}`)
       tValues.push(0n)
       uValues.push(0n)
     }
@@ -182,18 +201,13 @@ export function buildEmbeddedHNPLattice(signatures: ParsedSignature[], knownBits
       const t = mod(sInv * sig.r, q)
       
       // Get the message hash z - preserve full 256-bit value
-      let z: bigint
-      if (sig.sighash) {
-        z = BigInt(sig.sighash.startsWith('0x') ? sig.sighash : '0x' + sig.sighash)
-      } else {
-        z = BigInt(sig.hash.startsWith('0x') ? sig.hash : '0x' + sig.hash)
-      }
-      
+      const z = getMessageHash(sig)
       const u = mod(sInv * z, q)
       
       tValues.push(t)
       uValues.push(u)
-    } catch {
+    } catch (error) {
+      console.warn(`Failed to process signature ${sig.hash}: ${error instanceof Error ? error.message : 'unknown error'}`)
       tValues.push(0n)
       uValues.push(0n)
     }
@@ -243,7 +257,7 @@ export function buildEmbeddedHNPLattice(signatures: ParsedSignature[], knownBits
       signatureCount: numSigs,
       knownBits,
       latticeType: 'embedded',
-      estimatedComplexity: estimateComplexity(numSigs * 2, knownBits)
+      estimatedComplexity: estimateComplexity(dimension, knownBits)
     }
   }
 }
@@ -273,18 +287,13 @@ export function buildKannanEmbeddingLattice(signatures: ParsedSignature[], known
       const t = mod(sInv * sig.r, q)
       
       // Get the message hash z - preserve full 256-bit value
-      let z: bigint
-      if (sig.sighash) {
-        z = BigInt(sig.sighash.startsWith('0x') ? sig.sighash : '0x' + sig.sighash)
-      } else {
-        z = BigInt(sig.hash.startsWith('0x') ? sig.hash : '0x' + sig.hash)
-      }
-      
+      const z = getMessageHash(sig)
       const u = mod(sInv * z, q)
       
       tValues.push(t)
       uValues.push(u)
-    } catch {
+    } catch (error) {
+      console.warn(`Failed to process signature ${sig.hash}: ${error instanceof Error ? error.message : 'unknown error'}`)
       tValues.push(0n)
       uValues.push(0n)
     }
@@ -336,7 +345,7 @@ export function buildKannanEmbeddingLattice(signatures: ParsedSignature[], known
       signatureCount: numSigs,
       knownBits,
       latticeType: 'kannan',
-      estimatedComplexity: estimateComplexity(numSigs + 2, knownBits)
+      estimatedComplexity: estimateComplexity(dimension, knownBits)
     }
   }
 }

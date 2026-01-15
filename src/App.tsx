@@ -64,8 +64,8 @@ function convertBigIntBasisToNumber(basis: bigint[][]): number[][] {
   }
   
   // Scale down large values to prevent precision loss
-  // We keep precision as high as possible while staying safe
-  const scaleFactor = (maxVal / MAX_SAFE) + 1n
+  // Use ceiling division to minimize information loss: (maxVal + MAX_SAFE - 1) / MAX_SAFE
+  const scaleFactor = (maxVal + MAX_SAFE - 1n) / MAX_SAFE
   return basis.map(row => 
     row.map(val => Number(val / scaleFactor))
   )
