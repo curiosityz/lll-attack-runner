@@ -39,11 +39,47 @@ import { DimensionGuidance } from '@/components/DimensionGuidance'
 import { SignatureRequirementInfo } from '@/components/SignatureRequirementInfo'
 import { SaturationWarning } from '@/components/SaturationWarning'
 import { CORSExplanation } from '@/components/CORSExplanation'
-import { buildHNPLattice, buildEmbeddedHNPLattice, buildKannanEmbeddingLattice, selectOptimalLatticeType } from '@/lib/hnp-lattice-builder'
+import { buildHNPLattice, buildEmbeddedHNPLattice, buildKannanEmbeddingLattice, selectOptimalLatticeType, HNPLatticeResult } from '@/lib/hnp-lattice-builder'
 
-function formatMatrixForDisplay(basis: number[][]): string {
+/**
+ * Converts a BigInt matrix to a number matrix for display and processing.
+ * Large values are scaled down to prevent overflow while preserving relative proportions.
+ */
+function convertBigIntBasisToNumber(basis: bigint[][]): number[][] {
+  // Find the maximum absolute value in the matrix
+  let maxVal = 1n
+  for (const row of basis) {
+    for (const val of row) {
+      const absVal = val < 0n ? -val : val
+      if (absVal > maxVal) {
+        maxVal = absVal
+      }
+    }
+  }
+  
+  // If values fit in safe integer range, convert directly
+  const MAX_SAFE = BigInt(Number.MAX_SAFE_INTEGER)
+  if (maxVal <= MAX_SAFE) {
+    return basis.map(row => row.map(val => Number(val)))
+  }
+  
+  // Scale down large values to prevent precision loss
+  // We keep precision as high as possible while staying safe
+  const scaleFactor = (maxVal / MAX_SAFE) + 1n
+  return basis.map(row => 
+    row.map(val => Number(val / scaleFactor))
+  )
+}
+
+/**
+ * Formats a matrix for display, handling both number and bigint matrices.
+ */
+function formatMatrixForDisplay(basis: number[][] | bigint[][]): string {
   return basis.map(row => 
     row.map(val => {
+      if (typeof val === 'bigint') {
+        return val.toString()
+      }
       if (Math.abs(val) < 1e10 && Number.isInteger(val)) {
         return val.toString()
       }
@@ -233,7 +269,7 @@ function App() {
         const knownBits = 4
         const latticeType = selectOptimalLatticeType(sigs.length, knownBits)
         
-        let latticeResult
+        let latticeResult: HNPLatticeResult
         if (latticeType === 'embedded') {
           latticeResult = buildEmbeddedHNPLattice(sigs, knownBits)
         } else if (latticeType === 'kannan') {
@@ -242,7 +278,7 @@ function App() {
           latticeResult = buildHNPLattice(sigs, knownBits)
         }
         
-        basis = latticeResult.basis
+        basis = convertBigIntBasisToNumber(latticeResult.basis)
         name = `HNP ${latticeType.toUpperCase()} - ${weakness.weakness} (${sigs.length} sigs, ${latticeResult.dimension}D)`
         algo = 'bkz'
         bSize = Math.min(30, Math.max(20, Math.ceil(latticeResult.dimension / 3)))
@@ -408,7 +444,7 @@ function App() {
       const knownBits = pattern.metadata?.bias ? Math.floor(pattern.metadata.bias * 10) : 4
       const latticeType = selectOptimalLatticeType(actualSigCount, knownBits)
       
-      let latticeResult
+      let latticeResult: HNPLatticeResult
       if (latticeType === 'embedded') {
         latticeResult = buildEmbeddedHNPLattice(sigs, knownBits)
       } else if (latticeType === 'kannan') {
@@ -417,7 +453,7 @@ function App() {
         latticeResult = buildHNPLattice(sigs, knownBits)
       }
       
-      basis = latticeResult.basis
+      basis = convertBigIntBasisToNumber(latticeResult.basis)
       name = `HNP ${latticeType.toUpperCase()} - ${pattern.type.toUpperCase()} (${actualSigCount} sigs, ${latticeResult.dimension}D)`
       algo = 'bkz'
       bSize = Math.min(30, Math.max(20, Math.ceil(latticeResult.dimension / 3)))
