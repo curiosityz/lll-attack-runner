@@ -194,11 +194,18 @@ export function RPCScanner({ onAttackGenerated }: RPCScannerProps) {
       // Convert legacy RPC signatures to ParsedSignature format
       const parsedSignatures = convertLegacySignatures(scanResult.allSignatures)
       
+      // Helper function to safely convert r/s to bigint
+      const toBigInt = (value: string | bigint): bigint => {
+        if (typeof value === 'bigint') return value
+        const str = value.toString()
+        return BigInt(str.startsWith('0x') ? str : '0x' + str)
+      }
+      
       // Convert legacy WeakSignature to AnalyzerWeakSignature format
       const analyzerWeakSigs = scanResult.weakSignatures.map(ws => ({
         signature: {
-          r: BigInt(ws.signature.r.startsWith('0x') ? ws.signature.r : '0x' + ws.signature.r),
-          s: BigInt(ws.signature.s.startsWith('0x') ? ws.signature.s : '0x' + ws.signature.s),
+          r: toBigInt(ws.signature.r),
+          s: toBigInt(ws.signature.s),
           v: ws.signature.v || 0,
           hash: ws.signature.hash,
           address: ws.signature.address,
@@ -209,8 +216,8 @@ export function RPCScanner({ onAttackGenerated }: RPCScannerProps) {
         severity: ws.severity,
         description: ws.description,
         relatedSignatures: ws.relatedSignatures?.map(rs => ({
-          r: BigInt(rs.r.startsWith('0x') ? rs.r : '0x' + rs.r),
-          s: BigInt(rs.s.startsWith('0x') ? rs.s : '0x' + rs.s),
+          r: toBigInt(rs.r),
+          s: toBigInt(rs.s),
           v: rs.v || 0,
           hash: rs.hash,
           address: rs.address,

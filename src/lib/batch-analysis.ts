@@ -23,6 +23,18 @@ export interface LegacyRPCSignature {
 }
 
 /**
+ * Convert a hex string to bigint
+ */
+function hexToBigInt(hex: string): bigint {
+  if (!hex) return 0n
+  if (hex.startsWith('0x')) {
+    hex = hex.slice(2)
+  }
+  if (hex === '') return 0n
+  return BigInt('0x' + hex)
+}
+
+/**
  * Convert a legacy RPC signature (string r/s) to ParsedSignature (bigint r/s)
  */
 export function convertLegacySignature(sig: LegacyRPCSignature): ParsedSignature {
@@ -71,14 +83,6 @@ export interface StatisticalPattern {
   affectedSignatures: number
   statisticalSignificance: number
   details: Record<string, any>
-}
-
-function hexToBigInt(hex: string): bigint {
-  if (hex.startsWith('0x')) {
-    hex = hex.slice(2)
-  }
-  if (hex === '') return 0n
-  return BigInt('0x' + hex)
 }
 
 function calculateEntropy(values: bigint[]): number {
