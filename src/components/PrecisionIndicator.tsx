@@ -5,11 +5,22 @@ import { CheckCircle, Warning, Cpu } from '@phosphor-icons/react'
 
 interface PrecisionIndicatorProps {
   usedHighPrecision: boolean
+  usedRationalArithmetic?: boolean
   originalScale?: bigint
   matrixSize: { rows: number; cols: number }
 }
 
-export function PrecisionIndicator({ usedHighPrecision, originalScale, matrixSize }: PrecisionIndicatorProps) {
+export function PrecisionIndicator({ usedHighPrecision, usedRationalArithmetic, originalScale, matrixSize }: PrecisionIndicatorProps) {
+  const getArithmeticMode = () => {
+    if (usedRationalArithmetic) {
+      return 'Rational Arithmetic (Exact)'
+    }
+    if (usedHighPrecision) {
+      return 'High Precision (BigInt)'
+    }
+    return 'Standard (Float64)'
+  }
+
   return (
     <Card className="p-4 bg-card/60 backdrop-blur-sm border-border/40">
       <div className="flex items-start gap-3">
@@ -22,9 +33,9 @@ export function PrecisionIndicator({ usedHighPrecision, originalScale, matrixSiz
             <h3 className="text-sm font-bold">Arithmetic Mode</h3>
             <Badge 
               variant={usedHighPrecision ? 'default' : 'secondary'}
-              className={usedHighPrecision ? 'bg-accent/20 text-accent border-accent/40' : ''}
+              className={usedRationalArithmetic ? 'bg-success/20 text-success border-success/40' : usedHighPrecision ? 'bg-accent/20 text-accent border-accent/40' : ''}
             >
-              {usedHighPrecision ? 'High Precision (BigInt)' : 'Standard (Float64)'}
+              {getArithmeticMode()}
             </Badge>
           </div>
           
@@ -35,7 +46,18 @@ export function PrecisionIndicator({ usedHighPrecision, originalScale, matrixSiz
             )}
           </div>
           
-          {usedHighPrecision ? (
+          {usedRationalArithmetic ? (
+            <Alert className="mt-3 border-success/30 bg-success/5">
+              <AlertDescription className="text-xs flex items-start gap-2">
+                <CheckCircle size={16} weight="fill" className="text-success shrink-0 mt-0.5" />
+                <span>
+                  Using exact rational arithmetic for Gram-Schmidt coefficients. 
+                  This provides the same precision as fpylll/fplll, eliminating all rounding errors 
+                  in the LLL/BKZ algorithm.
+                </span>
+              </AlertDescription>
+            </Alert>
+          ) : usedHighPrecision ? (
             <Alert className="mt-3 border-accent/30 bg-accent/5">
               <AlertDescription className="text-xs flex items-start gap-2">
                 <CheckCircle size={16} weight="fill" className="text-accent shrink-0 mt-0.5" />

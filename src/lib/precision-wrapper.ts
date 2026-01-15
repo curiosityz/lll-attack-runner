@@ -1,5 +1,6 @@
 import { BigIntMatrix, convertToSafeNumbers, convertFromSafeNumbers, bigintAbs, bigintMax, SECP256K1_N } from './bigint-math'
 import { runBigIntLLL, runBigIntBKZ, buildHNPLattice, buildNonceReuseLattice } from './bigint-lll'
+import { runHighPrecisionLLL, runHighPrecisionBKZ } from './high-precision-lll'
 import { runLLL } from './lll'
 import { runBKZ } from './bkz'
 
@@ -9,6 +10,7 @@ export interface PrecisionLatticeResult {
   iterations: number
   solutionVector?: number[]
   usedHighPrecision: boolean
+  usedRationalArithmetic?: boolean
   originalScale?: bigint
   blockSize?: number
 }
@@ -77,7 +79,8 @@ export function runPrecisionLLL(
     })
   )
   
-  const result = runBigIntLLL(bigintBasis, delta, 10000)
+  // Use the new high-precision LLL with rational arithmetic
+  const result = runHighPrecisionLLL(bigintBasis, delta, 10000)
   
   const reducedBasis = result.reducedBasis.map(row =>
     row.map(val => {
@@ -101,6 +104,7 @@ export function runPrecisionLLL(
     iterations: result.iterations,
     solutionVector,
     usedHighPrecision: true,
+    usedRationalArithmetic: result.usedRationalArithmetic,
     originalScale
   }
 }
@@ -135,7 +139,8 @@ export function runPrecisionBKZ(
     })
   )
   
-  const result = runBigIntBKZ(bigintBasis, blockSize, delta, 1000)
+  // Use the new high-precision BKZ with rational arithmetic
+  const result = runHighPrecisionBKZ(bigintBasis, blockSize, delta, 1000)
   
   const reducedBasis = result.reducedBasis.map(row =>
     row.map(val => {
@@ -159,6 +164,7 @@ export function runPrecisionBKZ(
     iterations: result.iterations,
     solutionVector,
     usedHighPrecision: true,
+    usedRationalArithmetic: result.usedRationalArithmetic,
     originalScale,
     blockSize
   }
@@ -187,3 +193,7 @@ export function convertBasisToBigInt(basis: number[][]): bigint[][] {
 export function convertBasisToNumber(basis: bigint[][]): number[][] {
   return basis.map(row => row.map(val => Number(val)))
 }
+
+// Re-export high-precision functions for direct use
+export { runHighPrecisionLLL, runHighPrecisionBKZ } from './high-precision-lll'
+export { Rational, rationalGramSchmidt, rationalDotProduct, rationalNormSquared } from './rational'
