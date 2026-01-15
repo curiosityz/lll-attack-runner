@@ -41,6 +41,8 @@ import { DimensionGuidance } from '@/components/DimensionGuidance'
 import { SignatureRequirementInfo } from '@/components/SignatureRequirementInfo'
 import { SaturationWarning } from '@/components/SaturationWarning'
 import { CORSExplanation } from '@/components/CORSExplanation'
+import { buildHNPLattice, buildEmbeddedHNPLattice, buildKannanEmbeddingLattice, selectOptimalLatticeType } from '@/lib/hnp-lattice-builder'
+import { interpretBKZResult, InterpreterResult, isKeyFound, getRetryRecommendation } from '@/lib/result-interpreter'
 import { DimensionSelectorDisplay } from '@/components/DimensionSelectorDisplay'
 import { buildHNPLattice, buildEmbeddedHNPLattice, buildKannanEmbeddingLattice, selectOptimalLatticeType, buildHNPLatticeWithDimensionSelection, BatchHNPLatticeResult } from '@/lib/hnp-lattice-builder'
 import { selectDimension, DimensionSelectionResult, estimateBiasBits } from '@/lib/dimension-selector'
@@ -130,6 +132,9 @@ function App() {
   const [isNormalized, setIsNormalized] = useState(false)
   const [usePrecisionMode, setUsePrecisionMode] = useState(true)
   const [attackProgress, setAttackProgress] = useState<string>('')
+  const [interpreterResult, setInterpreterResult] = useState<InterpreterResult | null>(null)
+  const [showMatrixDetails, setShowMatrixDetails] = useState(false)
+  const [targetAddress, setTargetAddress] = useState<string>('')
   const [dimensionSelectionResult, setDimensionSelectionResult] = useState<DimensionSelectionResult | null>(null)
   const [batchResults, setBatchResults] = useState<BatchHNPLatticeResult | null>(null)
 
@@ -659,7 +664,8 @@ function App() {
     setResult(null)
     setVisualizationSteps([])
     setPrivateKeyResult(null)
-    setAttackProgress('Initializing attack...')
+    setInterpreterResult(null)
+    setAttackProgress('Attacking...')
 
     await new Promise(resolve => setTimeout(resolve, 100))
 
@@ -718,7 +724,7 @@ function App() {
       return
     }
     
-    setAttackProgress('Processing results...')
+    setAttackProgress('Attacking...')
     
     const endTime = performance.now()
     const executionTime = Math.round(endTime - startTime)
@@ -736,16 +742,50 @@ function App() {
     }
 
     setResult(newResult)
-    setIsRunning(false)
-    setAttackProgress('')
 
     if (lllResult.steps) {
       setVisualizationSteps(lllResult.steps)
       setCurrentVisualizationStep(0)
     }
 
+    // Result Interpreter: Triggers immediately after BKZ converges
+    let interpretedResult: InterpreterResult | null = null
+    if (algorithm === 'bkz' && lllResult.success && currentAttackSignatures.length > 0) {
+      setAttackProgress('Attacking...')
+      
+      interpretedResult = interpretBKZResult(
+        lllResult,
+        currentAttackSignatures,
+        {
+          targetAddress: targetAddress || undefined,
+          bias: 0n,
+          scalingFactor: lllResult.originalScale || 1n,
+          silentMode: true
+        }
+      )
+      
+      setInterpreterResult(interpretedResult)
+      
+      // Check if we should retry with higher block size
+      const retryRec = getRetryRecommendation(interpretedResult)
+      if (retryRec.shouldRetry && retryRec.recommendedBlockSize) {
+        setAttackProgress(interpretedResult.message)
+        toast.warning('Retry recommended', {
+          description: `${retryRec.reason} (β=${retryRec.recommendedBlockSize})`
+        })
+      } else if (isKeyFound(interpretedResult)) {
+        setAttackProgress('Attacking... Key Found!')
+        toast.success('🎉 VICTORY! Private key found!', {
+          description: `Key validated against target address. WIF available.`
+        })
+      } else {
+        setAttackProgress(interpretedResult.message)
+      }
+    }
+
+    // Legacy private key extraction (for non-BKZ or fallback)
     let privateKeyExtractionResult: PrivateKeyResult | null = null
-    if (lllResult.success && currentAttackSignatures.length > 0) {
+    if (lllResult.success && currentAttackSignatures.length > 0 && !interpretedResult?.privateKey) {
       privateKeyExtractionResult = extractPrivateKeyFromAttack(
         lllResult.solutionVector,
         currentAttackSignatures,
@@ -765,7 +805,23 @@ function App() {
           })
         }
       }
+    } else if (interpretedResult?.privateKey) {
+      // Convert interpreter result to PrivateKeyResult format for display
+      privateKeyExtractionResult = {
+        privateKey: interpretedResult.privateKey,
+        privateKeyHex: interpretedResult.privateKeyHex || '',
+        address: targetAddress || '',
+        derivedAddress: interpretedResult.derivedAddress || '',
+        isValid: interpretedResult.addressMatch || false,
+        validationMethod: 'lattice-solution',
+        confidence: interpretedResult.confidence,
+        signatures: currentAttackSignatures
+      }
+      setPrivateKeyResult(privateKeyExtractionResult)
     }
+
+    setIsRunning(false)
+    setAttackProgress('')
 
     const newHistory: AttackHistory = {
       config: {
@@ -1016,6 +1072,21 @@ function App() {
                       />
                     </div>
 
+                    <div>
+                      <Label htmlFor="target-address" className="text-sm font-medium mb-2 block">
+                        Target Address (for validation)
+                      </Label>
+                      <Input
+                        id="target-address"
+                        value={targetAddress}
+                        onChange={(e) => setTargetAddress(e.target.value)}
+                        placeholder="e.g., 32Bf... or 1A1zP..."
+                      />
+                      <p className="text-xs text-muted-foreground mt-1">
+                        Optional: Bitcoin/Ethereum address to validate the recovered key against
+                      </p>
+                    </div>
+
                     <MatrixInput
                       value={basisInput}
                       onChange={setBasisInput}
@@ -1211,6 +1282,46 @@ function App() {
                 
                 {result ? (
                   <>
+                    {/* Primary Attack Status Message - Always visible */}
+                    <Card className={`p-6 border-2 shadow-lg ${
+                      interpreterResult?.status === 'KEY_FOUND' 
+                        ? 'bg-gradient-to-br from-success/20 to-accent/20 border-success/60' 
+                        : interpreterResult?.status === 'RETRY_HIGHER_BLOCK_SIZE'
+                        ? 'bg-gradient-to-br from-warning/20 to-orange-500/20 border-warning/60'
+                        : 'bg-card/80 border-border/60'
+                    }`}>
+                      <div className="text-center py-4">
+                        <h2 className={`text-2xl font-bold mb-2 ${
+                          interpreterResult?.status === 'KEY_FOUND' ? 'text-success' : ''
+                        }`}>
+                          {interpreterResult?.message || (result.success ? 'Attacking... Complete' : 'Attacking... Not Found')}
+                        </h2>
+                        {interpreterResult?.status === 'KEY_FOUND' && interpreterResult.privateKeyWIF && (
+                          <div className="mt-4 p-4 bg-card/80 rounded-lg border border-success/30">
+                            <div className="text-xs text-muted-foreground mb-2 uppercase tracking-wider">WIF (Wallet Import Format)</div>
+                            <div className="font-mono text-sm break-all text-success bg-secondary/30 p-3 rounded">
+                              {interpreterResult.privateKeyWIF}
+                            </div>
+                          </div>
+                        )}
+                        {interpreterResult?.status === 'RETRY_HIGHER_BLOCK_SIZE' && interpreterResult.recommendedBlockSize && (
+                          <Button 
+                            variant="outline" 
+                            size="sm"
+                            className="mt-4 border-warning/50 hover:bg-warning/10"
+                            onClick={() => {
+                              const recBlockSize = interpreterResult.recommendedBlockSize
+                              if (recBlockSize) {
+                                setBlockSize(recBlockSize.toString())
+                              }
+                            }}
+                          >
+                            Retry with β={interpreterResult.recommendedBlockSize}
+                          </Button>
+                        )}
+                      </div>
+                    </Card>
+
                     {result.usedHighPrecision !== undefined && (
                       <PrecisionIndicator 
                         usedHighPrecision={result.usedHighPrecision}
@@ -1221,67 +1332,87 @@ function App() {
                         }}
                       />
                     )}
-                    
-                    <Card className="p-6 bg-card/80 backdrop-blur-sm border-border/60 shadow-lg">
-                      <h2 className="text-xl font-bold mb-6 flex items-center gap-2">
-                        <span className="w-1 h-6 bg-accent rounded-full"></span>
-                        Attack Results
-                      </h2>
-                      
-                      <div className="grid grid-cols-2 gap-4 mb-6">
-                        <div className="p-4 rounded-lg bg-secondary/50 border border-border/40">
-                          <div className="text-xs text-muted-foreground mb-1.5 uppercase tracking-wider">Algorithm</div>
-                          <div className="text-xl font-bold text-primary">{result.algorithm?.toUpperCase() || 'LLL'}</div>
-                        </div>
-                        {result.blockSize && (
-                          <div className="p-4 rounded-lg bg-secondary/50 border border-border/40">
-                            <div className="text-xs text-muted-foreground mb-1.5 uppercase tracking-wider">Block Size</div>
-                            <div className="text-xl font-bold text-accent">{result.blockSize}</div>
-                          </div>
-                        )}
-                        <div className="p-4 rounded-lg bg-secondary/50 border border-border/40">
-                          <div className="text-xs text-muted-foreground mb-1.5 uppercase tracking-wider">Iterations</div>
-                          <div className="text-xl font-bold text-foreground">{result.iterations}</div>
-                        </div>
-                        <div className="p-4 rounded-lg bg-secondary/50 border border-border/40">
-                          <div className="text-xs text-muted-foreground mb-1.5 uppercase tracking-wider">Time</div>
-                          <div className="text-xl font-bold text-foreground">{result.executionTime}ms</div>
-                        </div>
-                      </div>
-
-                      <Alert className={result.success ? 'border-success/50 bg-success/10' : 'border-warning/50 bg-warning/10'}>
-                        <AlertDescription className="text-sm font-medium">
-                          {result.success
-                            ? '✓ Algorithm converged successfully. Reduced basis found.'
-                            : '⚠ Algorithm completed but may not have fully converged.'}
-                        </AlertDescription>
-                      </Alert>
-                    </Card>
 
                     {privateKeyResult && (
                       <PrivateKeyDisplay result={privateKeyResult} />
                     )}
-                    
-                    {result.solutionVector && result.blockSize && (
-                      <SaturationWarning
-                        dimension={result.reducedBasis.length}
-                        blockSize={result.blockSize}
-                        foundZeroInFirstPosition={result.solutionVector[0] === 0}
-                      />
-                    )}
 
-                    <VectorDisplay
-                      matrix={result.reducedBasis}
-                      title="Reduced Basis"
-                      highlightFirst={true}
-                      success={result.success}
-                    />
+                    {/* Show/Hide Matrix Details Toggle */}
+                    <div className="flex items-center justify-between">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => setShowMatrixDetails(!showMatrixDetails)}
+                        className="text-muted-foreground hover:text-foreground"
+                      >
+                        {showMatrixDetails ? '▼ Hide Matrix Details' : '▶ Show Matrix Details'}
+                      </Button>
+                      <span className="text-xs text-muted-foreground">
+                        {result.iterations} iterations • {result.executionTime}ms
+                      </span>
+                    </div>
 
-                    {result.solutionVector && (
-                      <VectorDisplay
-                        matrix={[result.solutionVector]}
-                        title="Shortest Vector (Solution)"
-                      />
+                    {/* Matrix Details - Hidden by default (Silence mode) */}
+                    {showMatrixDetails && (
+                      <>
+                        <Card className="p-6 bg-card/80 backdrop-blur-sm border-border/60 shadow-lg">
+                          <h2 className="text-xl font-bold mb-6 flex items-center gap-2">
+                            <span className="w-1 h-6 bg-accent rounded-full"></span>
+                            Attack Results
+                          </h2>
+                          
+                          <div className="grid grid-cols-2 gap-4 mb-6">
+                            <div className="p-4 rounded-lg bg-secondary/50 border border-border/40">
+                              <div className="text-xs text-muted-foreground mb-1.5 uppercase tracking-wider">Algorithm</div>
+                              <div className="text-xl font-bold text-primary">{result.algorithm?.toUpperCase() || 'LLL'}</div>
+                            </div>
+                            {result.blockSize && (
+                              <div className="p-4 rounded-lg bg-secondary/50 border border-border/40">
+                                <div className="text-xs text-muted-foreground mb-1.5 uppercase tracking-wider">Block Size</div>
+                                <div className="text-xl font-bold text-accent">{result.blockSize}</div>
+                              </div>
+                            )}
+                            <div className="p-4 rounded-lg bg-secondary/50 border border-border/40">
+                              <div className="text-xs text-muted-foreground mb-1.5 uppercase tracking-wider">Iterations</div>
+                              <div className="text-xl font-bold text-foreground">{result.iterations}</div>
+                            </div>
+                            <div className="p-4 rounded-lg bg-secondary/50 border border-border/40">
+                              <div className="text-xs text-muted-foreground mb-1.5 uppercase tracking-wider">Time</div>
+                              <div className="text-xl font-bold text-foreground">{result.executionTime}ms</div>
+                            </div>
+                          </div>
+
+                          <Alert className={result.success ? 'border-success/50 bg-success/10' : 'border-warning/50 bg-warning/10'}>
+                            <AlertDescription className="text-sm font-medium">
+                              {result.success
+                                ? '✓ Algorithm converged successfully. Reduced basis found.'
+                                : '⚠ Algorithm completed but may not have fully converged.'}
+                            </AlertDescription>
+                          </Alert>
+                        </Card>
+                        
+                        {result.solutionVector && result.blockSize && (
+                          <SaturationWarning
+                            dimension={result.reducedBasis.length}
+                            blockSize={result.blockSize}
+                            foundZeroInFirstPosition={result.solutionVector[0] === 0}
+                          />
+                        )}
+
+                        <VectorDisplay
+                          matrix={result.reducedBasis}
+                          title="Reduced Basis"
+                          highlightFirst={true}
+                          success={result.success}
+                        />
+
+                        {result.solutionVector && (
+                          <VectorDisplay
+                            matrix={[result.solutionVector]}
+                            title="Shortest Vector (Solution)"
+                          />
+                        )}
+                      </>
                     )}
                   </>
                 ) : (
