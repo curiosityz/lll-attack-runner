@@ -24,12 +24,14 @@ import { VectorVisualization } from '@/components/VectorVisualization'
 import { MatrixHeatmap } from '@/components/MatrixHeatmap'
 import { OrthogonalityChart } from '@/components/OrthogonalityChart'
 import { DataUpload } from '@/components/DataUpload'
+import { BlockchairUpload } from '@/components/BlockchairUpload'
 import { AnalysisDisplay } from '@/components/AnalysisDisplay'
 import { AddressLookup } from '@/components/AddressLookup'
 import { BlockchainExplorerIntegration } from '@/components/BlockchainExplorerIntegration'
 import { SighashCalculator } from '@/components/SighashCalculator'
 import { ParsedSignature, ParseResult } from '@/lib/dataParser'
 import { analyzeSignatures, AnalysisResult, WeakSignature, PatternCluster } from '@/lib/signatureAnalyzer'
+import { ExtractedSignature } from '@/lib/blockchair-parser'
 import { ExplorerTransaction } from '@/lib/blockchain-explorer'
 import { extractPrivateKeyFromAttack, PrivateKeyResult } from '@/lib/privateKeyExtractor'
 import { PrivateKeyDisplay } from '@/components/PrivateKeyDisplay'
@@ -42,10 +44,47 @@ import { CORSExplanation } from '@/components/CORSExplanation'
 import { DimensionSelectorDisplay } from '@/components/DimensionSelectorDisplay'
 import { buildHNPLattice, buildEmbeddedHNPLattice, buildKannanEmbeddingLattice, selectOptimalLatticeType, buildHNPLatticeWithDimensionSelection, BatchHNPLatticeResult } from '@/lib/hnp-lattice-builder'
 import { selectDimension, DimensionSelectionResult, estimateBiasBits } from '@/lib/dimension-selector'
+import { buildHNPLattice, buildEmbeddedHNPLattice, buildKannanEmbeddingLattice, selectOptimalLatticeType, HNPLatticeResult } from '@/lib/hnp-lattice-builder'
 
-function formatMatrixForDisplay(basis: number[][]): string {
+/**
+ * Converts a BigInt matrix to a number matrix for display and processing.
+ * Large values are scaled down to prevent overflow while preserving relative proportions.
+ */
+function convertBigIntBasisToNumber(basis: bigint[][]): number[][] {
+  // Find the maximum absolute value in the matrix
+  let maxVal = 1n
+  for (const row of basis) {
+    for (const val of row) {
+      const absVal = val < 0n ? -val : val
+      if (absVal > maxVal) {
+        maxVal = absVal
+      }
+    }
+  }
+  
+  // If values fit in safe integer range, convert directly
+  const MAX_SAFE = BigInt(Number.MAX_SAFE_INTEGER)
+  if (maxVal <= MAX_SAFE) {
+    return basis.map(row => row.map(val => Number(val)))
+  }
+  
+  // Scale down large values to prevent precision loss
+  // Use ceiling division to minimize information loss: (maxVal + MAX_SAFE - 1) / MAX_SAFE
+  const scaleFactor = (maxVal + MAX_SAFE - 1n) / MAX_SAFE
+  return basis.map(row => 
+    row.map(val => Number(val / scaleFactor))
+  )
+}
+
+/**
+ * Formats a matrix for display, handling both number and bigint matrices.
+ */
+function formatMatrixForDisplay(basis: number[][] | bigint[][]): string {
   return basis.map(row => 
     row.map(val => {
+      if (typeof val === 'bigint') {
+        return val.toString()
+      }
       if (Math.abs(val) < 1e10 && Number.isInteger(val)) {
         return val.toString()
       }
@@ -81,6 +120,7 @@ function App() {
   const [templateDialogOpen, setTemplateDialogOpen] = useState(false)
   
   const [uploadedSignatures, setUploadedSignatures] = useState<ParsedSignature[]>([])
+  const [blockchairRawSignatures, setBlockchairRawSignatures] = useState<ExtractedSignature[]>([])
   const [analysisResult, setAnalysisResult] = useState<AnalysisResult | null>(null)
   const [isAnalyzing, setIsAnalyzing] = useState(false)
   const [activeTab, setActiveTab] = useState('upload')
@@ -207,6 +247,28 @@ function App() {
       }
     }, 500)
   }
+
+  const handleBlockchairSignatures = (signatures: ParsedSignature[], rawSignatures: ExtractedSignature[]) => {
+    setUploadedSignatures(signatures)
+    setBlockchairRawSignatures(rawSignatures)
+    setIsAnalyzing(true)
+    
+    setTimeout(() => {
+      const result = analyzeSignatures(signatures)
+      setAnalysisResult(result)
+      setIsAnalyzing(false)
+      
+      // Count vulnerabilities from raw Blockchair data
+      const vulnCount = rawSignatures.filter(s => s.vulnerabilities.length > 0).length
+      
+      if (result.weakSignatures.length > 0 || result.patterns.length > 0 || vulnCount > 0) {
+        toast.success('Blockchair analysis complete!', {
+          description: `Found ${result.weakSignatures.length + vulnCount} weaknesses and ${result.patterns.length} patterns`
+        })
+        setActiveTab('analyze')
+      }
+    }, 500)
+  }
   
   const SECP256K1_N = BigInt('0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141')
   
@@ -253,6 +315,40 @@ function App() {
       if (!batchResult.isValid) {
         toast.error('Insufficient Data', {
           description: batchResult.insufficientDataReason || 'Not enough signatures for attack'
+      if (sigs.length >= 10) {
+        const knownBits = 4
+        const latticeType = selectOptimalLatticeType(sigs.length, knownBits)
+        
+        let latticeResult: HNPLatticeResult
+        if (latticeType === 'embedded') {
+          latticeResult = buildEmbeddedHNPLattice(sigs, knownBits)
+        } else if (latticeType === 'kannan') {
+          latticeResult = buildKannanEmbeddingLattice(sigs, knownBits)
+        } else {
+          latticeResult = buildHNPLattice(sigs, knownBits)
+        }
+        
+        basis = convertBigIntBasisToNumber(latticeResult.basis)
+        name = `HNP ${latticeType.toUpperCase()} - ${weakness.weakness} (${sigs.length} sigs, ${latticeResult.dimension}D)`
+        algo = 'bkz'
+        bSize = Math.min(30, Math.max(20, Math.ceil(latticeResult.dimension / 3)))
+        
+        setCurrentAttackSignatures(sigs)
+        setCurrentWeaknessType(weakness.weakness)
+        setIsNormalized(true)
+        
+        if (sigs.length >= 40) {
+          toast.success('High-dimensional attack configured', {
+            description: `${latticeResult.dimension}x${latticeResult.dimension} lattice built from ${sigs.length} signatures`
+          })
+        } else {
+          toast.info('Multi-signature HNP attack', {
+            description: `Using ${sigs.length} signatures • Need 40+ for best results`
+          })
+        }
+      } else {
+        toast.error('Too few signatures for HNP attack', {
+          description: `Only ${sigs.length} signatures. Need at least 10 (ideally 40+) to extract private key.`
         })
         
         // Still set up a basic attack for display, but warn user
@@ -440,6 +536,27 @@ function App() {
       if (!batchResult.isValid) {
         toast.error('Insufficient Data', {
           description: batchResult.insufficientDataReason || 'Not enough signatures for attack'
+      let latticeResult: HNPLatticeResult
+      if (latticeType === 'embedded') {
+        latticeResult = buildEmbeddedHNPLattice(sigs, knownBits)
+      } else if (latticeType === 'kannan') {
+        latticeResult = buildKannanEmbeddingLattice(sigs, knownBits)
+      } else {
+        latticeResult = buildHNPLattice(sigs, knownBits)
+      }
+      
+      basis = convertBigIntBasisToNumber(latticeResult.basis)
+      name = `HNP ${latticeType.toUpperCase()} - ${pattern.type.toUpperCase()} (${actualSigCount} sigs, ${latticeResult.dimension}D)`
+      algo = 'bkz'
+      bSize = Math.min(30, Math.max(20, Math.ceil(latticeResult.dimension / 3)))
+      
+      setCurrentAttackSignatures(sigs)
+      setCurrentWeaknessType('biased-k')
+      setIsNormalized(true)
+      
+      if (actualSigCount >= 40) {
+        toast.success('High-dimensional lattice constructed', {
+          description: `${latticeResult.dimension}x${latticeResult.dimension} • ${actualSigCount} sigs • ${latticeResult.metadata.estimatedComplexity}`
         })
         // Set up a minimal display
         basis = [[1]]
@@ -769,9 +886,10 @@ function App() {
               <Lightbulb size={18} className="text-accent" weight="duotone" />
               <AlertDescription className="text-sm">
                 <strong>⚠️ Browser Security Limitation:</strong> Direct blockchain API access is blocked by browser CORS policies. 
-                <strong> Solution:</strong> Upload signature data files (JSON/CSV) directly for full functionality.
+                <strong> Solution:</strong> Upload signature data files (JSON/CSV/TSV) directly for full functionality.
               </AlertDescription>
             </Alert>
+            <BlockchairUpload onSignaturesExtracted={handleBlockchairSignatures} />
             <AddressLookup onAttackGenerated={handleAddressAttack} />
             <DataUpload onDataParsed={handleDataParsed} />
           </TabsContent>
