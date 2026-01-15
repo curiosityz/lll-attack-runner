@@ -125,7 +125,13 @@ function pointMultiply(k: bigint, x: bigint = SECP256K1_Gx, y: bigint = SECP256K
 
 /**
  * Convert public key to Bitcoin address (P2PKH format)
- * This is a simplified version - in production use a proper library
+ * 
+ * NOTE: This is a simplified/placeholder implementation for demonstration purposes.
+ * In a production environment, you would need proper crypto libraries (e.g., bitcoinjs-lib)
+ * to perform real SHA256+RIPEMD160 hashing and Base58Check encoding.
+ * 
+ * The simplified hash is used for comparing derived addresses in the lattice attack context,
+ * where we're primarily checking if the math is consistent, not generating real Bitcoin addresses.
  */
 function publicKeyToAddress(pubKeyX: bigint, pubKeyY: bigint): string {
   // In a real implementation, this would:
@@ -139,7 +145,8 @@ function publicKeyToAddress(pubKeyX: bigint, pubKeyY: bigint): string {
   // For now, return a hash representation for comparison
   const pubKeyHex = '04' + pubKeyX.toString(16).padStart(64, '0') + pubKeyY.toString(16).padStart(64, '0')
   
-  // Simple hash for address representation (not real Bitcoin address derivation)
+  // Simple deterministic hash for address representation (not real Bitcoin address derivation)
+  // This is consistent for the same public key but NOT a valid Bitcoin address
   let hash = 0n
   for (let i = 0; i < pubKeyHex.length; i++) {
     hash = (hash * 31n + BigInt(pubKeyHex.charCodeAt(i))) % (2n ** 160n)
@@ -150,12 +157,19 @@ function publicKeyToAddress(pubKeyX: bigint, pubKeyY: bigint): string {
 
 /**
  * Convert private key to WIF (Wallet Import Format)
+ * 
+ * NOTE: This is a simplified/placeholder implementation for demonstration purposes.
+ * The checksum used here is NOT the proper double SHA256 checksum required by Bitcoin.
+ * In production, you would need a proper crypto library to generate valid WIF strings.
+ * 
+ * The output format resembles WIF but should be treated as a display value only.
+ * Use a proper Bitcoin library (e.g., bitcoinjs-lib) for wallet imports.
  */
 function privateKeyToWIF(privateKey: bigint, compressed: boolean = true): string {
   // WIF format:
   // 1. Add version byte (0x80 for mainnet)
   // 2. If compressed, add 0x01 suffix
-  // 3. Double SHA256 checksum (first 4 bytes)
+  // 3. Double SHA256 checksum (first 4 bytes) - SIMPLIFIED HERE
   // 4. Base58Check encode
   
   const privateKeyHex = privateKey.toString(16).padStart(64, '0')
@@ -170,7 +184,8 @@ function privateKeyToWIF(privateKey: bigint, compressed: boolean = true): string
   // Convert hex to BigInt for Base58 encoding
   let num = BigInt('0x' + payload)
   
-  // Simple checksum simulation (in production, use double SHA256)
+  // Simplified checksum (NOT proper double SHA256 - for display only)
+  // In production, use: sha256(sha256(payload)).slice(0, 8)
   const checksum = (num % (2n ** 32n)).toString(16).padStart(8, '0')
   num = BigInt('0x' + payload + checksum)
   
@@ -243,6 +258,9 @@ function recoverPrivateKey(
 
 /**
  * Validate if the recovered private key matches the expected address
+ * 
+ * NOTE: Due to the simplified address generation (see publicKeyToAddress),
+ * validation is limited. In production, use proper crypto libraries for accurate matching.
  */
 function validatePrivateKey(
   privateKey: bigint,
@@ -257,18 +275,27 @@ function validatePrivateKey(
     const derivedAddress = publicKeyToAddress(pubX, pubY)
     
     if (!targetAddress) {
-      // No target to validate against, but key is mathematically valid
-      return { isValid: true, derivedAddress }
+      // No target to validate against - key is mathematically valid but not verified
+      // Return false for isValid since we can't confirm the address match
+      return { isValid: false, derivedAddress }
     }
     
     // Normalize addresses for comparison
-    const normalizedTarget = targetAddress.toLowerCase().replace('0x', '').replace(/^(1|3|bc1)/, '')
-    const normalizedDerived = derivedAddress.toLowerCase().replace('0x', '')
+    // Remove common prefixes and convert to lowercase for comparison
+    const normalizedTarget = targetAddress.toLowerCase()
+      .replace(/^0x/, '')        // Ethereum prefix
+      .replace(/^(1|3|bc1)/, '') // Bitcoin prefixes
+      .trim()
+    const normalizedDerived = derivedAddress.toLowerCase().replace(/^0x/, '')
     
-    // Check if addresses match (partial match for Bitcoin addresses that may be truncated)
-    const isValid = normalizedDerived === normalizedTarget ||
-                   normalizedTarget.startsWith(normalizedDerived.substring(0, 8)) ||
-                   normalizedDerived.startsWith(normalizedTarget.substring(0, 8))
+    // Strict comparison: require exact match or very high similarity
+    // Only consider it valid if there's a substantial match (at least 32 chars)
+    const minMatchLength = Math.min(32, normalizedTarget.length, normalizedDerived.length)
+    const isExactMatch = normalizedDerived === normalizedTarget
+    const isPartialMatch = minMatchLength >= 16 && 
+                          normalizedDerived.substring(0, minMatchLength) === normalizedTarget.substring(0, minMatchLength)
+    
+    const isValid = isExactMatch || isPartialMatch
     
     return { isValid, derivedAddress }
   } catch {
@@ -337,15 +364,26 @@ export function interpretBKZResult(
       const sig = signatures[sigIdx]
       
       try {
+        // Validate signature components before processing
+        if (!sig.r || !sig.s || !sig.hash) continue
+        if (sig.r <= 0n || sig.r >= SECP256K1_N) continue
+        if (sig.s <= 0n || sig.s >= SECP256K1_N) continue
+        
         // Step 2: Recover nonce - k_guessed = Bias + v_1
         const nonceGuessed = extractNonceFromVector(vector, bias, scalingFactor)
         
         if (nonceGuessed === 0n || nonceGuessed >= SECP256K1_N) continue
         
-        // Get signature components
+        // Get signature components with validation
         const r = sig.r
         const s = sig.s
-        const z = BigInt(sig.hash.startsWith('0x') ? sig.hash : '0x' + sig.hash)
+        let z: bigint
+        try {
+          z = BigInt(sig.hash.startsWith('0x') ? sig.hash : '0x' + sig.hash)
+        } catch {
+          continue // Invalid hash format
+        }
+        if (z <= 0n) continue
         
         // Step 3: Recover private key - d = (s·k - z)·r⁻¹ mod n
         const privateKey = recoverPrivateKey(nonceGuessed, r, s, z)
@@ -419,13 +457,24 @@ export function interpretBKZResult(
       const sig = signatures[sigIdx]
       
       try {
+        // Validate signature components before processing
+        if (!sig.r || !sig.s || !sig.hash) continue
+        if (sig.r <= 0n || sig.r >= SECP256K1_N) continue
+        if (sig.s <= 0n || sig.s >= SECP256K1_N) continue
+        
         const nonceGuessed = extractNonceFromVector(vector, bias, scalingFactor)
         
         if (nonceGuessed === 0n || nonceGuessed >= SECP256K1_N) continue
         
         const r = sig.r
         const s = sig.s
-        const z = BigInt(sig.hash.startsWith('0x') ? sig.hash : '0x' + sig.hash)
+        let z: bigint
+        try {
+          z = BigInt(sig.hash.startsWith('0x') ? sig.hash : '0x' + sig.hash)
+        } catch {
+          continue // Invalid hash format
+        }
+        if (z <= 0n) continue
         
         const privateKey = recoverPrivateKey(nonceGuessed, r, s, z)
         

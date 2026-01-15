@@ -1128,7 +1128,12 @@ function App() {
                             variant="outline" 
                             size="sm"
                             className="mt-4 border-warning/50 hover:bg-warning/10"
-                            onClick={() => setBlockSize(interpreterResult.recommendedBlockSize!.toString())}
+                            onClick={() => {
+                              const recBlockSize = interpreterResult.recommendedBlockSize
+                              if (recBlockSize) {
+                                setBlockSize(recBlockSize.toString())
+                              }
+                            }}
                           >
                             Retry with β={interpreterResult.recommendedBlockSize}
                           </Button>
