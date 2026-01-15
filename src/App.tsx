@@ -25,8 +25,10 @@ import { OrthogonalityChart } from '@/components/OrthogonalityChart'
 import { DataUpload } from '@/components/DataUpload'
 import { AnalysisDisplay } from '@/components/AnalysisDisplay'
 import { AddressLookup } from '@/components/AddressLookup'
+import { BlockchainExplorerIntegration } from '@/components/BlockchainExplorerIntegration'
 import { ParsedSignature, ParseResult } from '@/lib/dataParser'
 import { analyzeSignatures, AnalysisResult, WeakSignature, PatternCluster } from '@/lib/signatureAnalyzer'
+import { ExplorerTransaction } from '@/lib/blockchain-explorer'
 
 function App() {
   const [attackHistory, setAttackHistory] = useKV<AttackHistory[]>('attack-history', [])
@@ -71,6 +73,46 @@ function App() {
     toast.success('Attack vector loaded!', {
       description: `Configured for ${address.slice(0, 10)}...`
     })
+  }
+
+  const handleExplorerTransactions = (transactions: ExplorerTransaction[]) => {
+    console.log('Fetched transactions:', transactions)
+  }
+
+  const handleExplorerSignatures = (signatures: Array<{
+    r: string
+    s: string
+    z: string
+    txid: string
+    blockNumber: number
+    timestamp: number
+  }>) => {
+    const parsedSignatures: ParsedSignature[] = signatures.map((sig) => ({
+      r: BigInt(sig.r),
+      s: BigInt(sig.s),
+      v: 27,
+      hash: sig.z,
+      address: 'explorer-' + sig.txid.slice(0, 10),
+      timestamp: sig.timestamp,
+      blockNumber: sig.blockNumber,
+      txNonce: 0
+    }))
+
+    setUploadedSignatures(parsedSignatures)
+    setIsAnalyzing(true)
+    
+    setTimeout(() => {
+      const result = analyzeSignatures(parsedSignatures)
+      setAnalysisResult(result)
+      setIsAnalyzing(false)
+      
+      if (result.weakSignatures.length > 0 || result.patterns.length > 0) {
+        toast.success('Explorer analysis complete!', {
+          description: `Found ${result.weakSignatures.length} weaknesses and ${result.patterns.length} patterns`
+        })
+        setActiveTab('analyze')
+      }
+    }, 500)
   }
 
   const handleDataParsed = (signatures: ParsedSignature[], parseResult: ParseResult) => {
@@ -426,6 +468,10 @@ function App() {
           </TabsList>
 
           <TabsContent value="upload" className="space-y-6">
+            <BlockchainExplorerIntegration 
+              onTransactionsFetched={handleExplorerTransactions}
+              onSignaturesExtracted={handleExplorerSignatures}
+            />
             <AddressLookup onAttackGenerated={handleAddressAttack} />
             <DataUpload onDataParsed={handleDataParsed} />
           </TabsContent>

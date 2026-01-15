@@ -103,6 +103,13 @@ A sophisticated web application for analyzing cryptographic signatures and execu
 - **Progression**: Scan blocks (training data) → Configure prediction range → Generate ML predictions → View confidence scores and reasoning → Scan suggested high-priority blocks → Validate predictions
 - **Success criteria**: Model trains on historical patterns, predicts vulnerability locations with confidence scores, provides reasoning for predictions, identifies high-priority blocks, and improves accuracy with more training data
 
+### Blockchain Explorer Integration
+- **Functionality**: Fetch real transaction data directly from blockchain explorers (Blockchair, Blockchain.com, BlockCypher) for any address
+- **Purpose**: Enable real-world vulnerability research by accessing actual blockchain transaction data without requiring local nodes or RPC endpoints
+- **Trigger**: User selects blockchain (Bitcoin/Ethereum), enters address, and clicks "Search"
+- **Progression**: Select blockchain → Enter address → Fetch transactions from explorers → Extract signatures from transaction data → Display transaction history → Show extracted signatures → Auto-analyze for weaknesses → Generate attacks from findings
+- **Success criteria**: Successfully fetches data from multiple explorer APIs with fallback redundancy, extracts cryptographic signatures from transactions, displays comprehensive transaction details, automatically integrates with signature analysis pipeline, handles rate limits gracefully
+
 ## Edge Case Handling
 
 - **Invalid Matrix Input**: Detect non-numeric, malformed, or non-square matrices and show inline validation errors
