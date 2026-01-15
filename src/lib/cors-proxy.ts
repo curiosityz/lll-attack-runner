@@ -154,8 +154,16 @@ export const corsProxyManager = new CORSProxyManager()
 export async function fetchWithCORSProxy(
   targetUrl: string,
   options: RequestInit = {},
-  maxRetries: number = 5
+  maxRetries: number = 2
 ): Promise<Response> {
+  if (!targetUrl || targetUrl.trim() === '') {
+    throw new Error('Target URL is empty')
+  }
+
+  if (targetUrl.includes(':5000') || targetUrl.includes('probable-invention')) {
+    throw new Error('Local CORS proxy not available in browser environment')
+  }
+
   const shouldUseCorsProxy = !targetUrl.includes('localhost') && 
                              !targetUrl.includes('127.0.0.1') &&
                              !targetUrl.startsWith('file://')
@@ -164,97 +172,39 @@ export async function fetchWithCORSProxy(
     return fetch(targetUrl, options)
   }
 
-  let lastError: Error | null = null
-  let triedDirect = false
+  try {
+    const controller = new AbortController()
+    const timeoutId = setTimeout(() => controller.abort(), 5000)
 
-  if (!triedDirect) {
-    console.log(`[CORS Proxy] Attempting direct connection first...`)
-    try {
-      const controller = new AbortController()
-      const timeoutId = setTimeout(() => controller.abort(), 8000)
+    const response = await fetch(targetUrl, {
+      ...options,
+      signal: controller.signal,
+      mode: 'cors',
+      cache: 'no-cache'
+    })
 
-      const response = await fetch(targetUrl, {
-        ...options,
-        signal: controller.signal,
-        mode: 'cors',
-        cache: 'no-cache'
-      })
+    clearTimeout(timeoutId)
 
-      clearTimeout(timeoutId)
-
-      if (response.ok) {
-        console.log(`[CORS Proxy] ✓ Direct connection succeeded!`)
-        return response
-      }
-    } catch (error) {
-      console.log(`[CORS Proxy] Direct connection failed, using proxies...`)
-      lastError = error instanceof Error ? error : new Error(String(error))
-    }
-    triedDirect = true
-  }
-
-  for (let attempt = 0; attempt < maxRetries; attempt++) {
-    const proxy = corsProxyManager.getCurrentProxy()
-    const proxyUrl = proxy.url(targetUrl)
-    const startTime = performance.now()
-
-    console.log(`[CORS Proxy] Attempt ${attempt + 1}/${maxRetries} using ${proxy.name}`)
-
-    try {
-      const controller = new AbortController()
-      const timeoutId = setTimeout(() => controller.abort(), 20000)
-
-      const response = await fetch(proxyUrl, {
-        method: options.method || 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json'
-        },
-        body: options.body,
-        signal: controller.signal,
-        mode: 'cors',
-        cache: 'no-cache'
-      })
-
-      clearTimeout(timeoutId)
-      const responseTime = performance.now() - startTime
-
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`)
-      }
-
-      corsProxyManager.recordSuccess(proxy.name, responseTime)
-      console.log(`[CORS Proxy] ✓ Success with ${proxy.name} (${responseTime.toFixed(0)}ms)`)
+    if (response.ok) {
       return response
-
-    } catch (error) {
-      const responseTime = performance.now() - startTime
-      lastError = error instanceof Error ? error : new Error(String(error))
-      
-      corsProxyManager.recordFailure(
-        proxy.name, 
-        lastError.message.slice(0, 100)
-      )
-
-      if (attempt < maxRetries - 1) {
-        const backoffDelay = Math.min(2000, 300 * Math.pow(1.5, attempt))
-        console.log(`[CORS Proxy] Waiting ${backoffDelay.toFixed(0)}ms before retry...`)
-        await new Promise(resolve => setTimeout(resolve, backoffDelay))
-      }
+    } else {
+      throw new Error(`HTTP ${response.status}`)
     }
+  } catch (error) {
+    const lastError = error instanceof Error ? error : new Error(String(error))
+    
+    if (lastError.message.includes('CORS') || lastError.name === 'TypeError') {
+      throw new Error('CORS policy blocks this request. Blockchain explorers require a backend server. Please upload signature data files directly.')
+    }
+    
+    throw lastError
   }
-
-  throw new Error(
-    `All ${maxRetries} proxy attempts failed. Last error: ${lastError?.message || 'Unknown'}. ` +
-    `Try: 1) Use a different RPC endpoint, 2) Check your API key, 3) Verify network connection. ` +
-    `Recommended: https://rpc.ankr.com/eth or https://ethereum.publicnode.com`
-  )
 }
 
 export async function fetchJSONWithCORSProxy(
   targetUrl: string,
   body: any,
-  maxRetries: number = 5
+  maxRetries: number = 2
 ): Promise<any> {
   const response = await fetchWithCORSProxy(
     targetUrl,

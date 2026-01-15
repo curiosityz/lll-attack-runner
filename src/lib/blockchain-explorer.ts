@@ -74,12 +74,28 @@ export class BlockchainExplorer {
         signal: controller.signal,
         headers: {
           'Accept': 'application/json',
-        }
+        },
+        mode: 'cors'
       })
       clearTimeout(timeoutId)
+      
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`)
+      }
+      
       return response
     } catch (error) {
       clearTimeout(timeoutId)
+      
+      if (error instanceof Error) {
+        if (error.name === 'AbortError') {
+          throw new Error('Request timeout - blockchain explorer took too long to respond')
+        }
+        if (error.message.includes('CORS') || error.message.includes('NetworkError')) {
+          throw new Error('CORS error - blockchain explorers require a backend proxy. Please upload signature data directly instead.')
+        }
+      }
+      
       throw error
     }
   }
@@ -211,6 +227,8 @@ export class BlockchainExplorer {
       () => this.fetchTransactionsBlockCypher(params)
     ]
 
+    const errors: string[] = []
+
     for (const fetchFn of explorers) {
       try {
         const transactions = await fetchFn()
@@ -218,12 +236,18 @@ export class BlockchainExplorer {
           return transactions
         }
       } catch (error) {
-        console.warn('Explorer failed, trying next...', error)
+        const errorMsg = error instanceof Error ? error.message : String(error)
+        errors.push(errorMsg)
+        
+        if (errorMsg.includes('CORS')) {
+          throw new Error('Browser CORS policy blocks direct blockchain API access. Please upload signature data files directly using the Upload tab instead.')
+        }
+        
         continue
       }
     }
 
-    throw new Error('All blockchain explorers failed to fetch transactions')
+    throw new Error(`All blockchain explorers failed. Errors: ${errors.join('; ')}. Please upload signature data files directly.`)
   }
 
   async fetchAddressInfo(address: string, chain?: string): Promise<{

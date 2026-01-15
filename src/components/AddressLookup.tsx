@@ -148,13 +148,26 @@ export function AddressLookup({ onAttackGenerated }: AddressLookupProps) {
       }
     } catch (error) {
       console.error('Search error:', error)
+      
+      const errorMessage = error instanceof Error ? error.message : 'Unable to analyze address'
+      const isCorsError = errorMessage.includes('CORS') || errorMessage.includes('blocked')
+      
       setAddressData({
         address,
         status: 'error'
       })
-      toast.error('Search failed', {
-        description: error instanceof Error ? error.message : 'Unable to analyze address'
-      })
+      
+      if (isCorsError) {
+        toast.error('CORS Blocked', {
+          description: 'Browser blocked the request. Please upload signature data files directly instead.',
+          duration: 5000
+        })
+      } else {
+        toast.error('Search failed', {
+          description: errorMessage,
+          duration: 5000
+        })
+      }
     } finally {
       setIsSearching(false)
     }
@@ -274,6 +287,14 @@ export function AddressLookup({ onAttackGenerated }: AddressLookupProps) {
           Fetch real blockchain data and analyze signatures for cryptographic weaknesses.
         </p>
       </div>
+
+      <Alert className="mb-4 border-warning/50 bg-warning/10">
+        <Warning size={16} className="text-warning" />
+        <AlertDescription className="text-xs">
+          <strong>Browser Limitation:</strong> Direct blockchain API access may be blocked by CORS policies. 
+          If scanning fails, please use the <strong>Upload</strong> tab to import signature data files directly.
+        </AlertDescription>
+      </Alert>
 
       <div className="space-y-4">
         <div>

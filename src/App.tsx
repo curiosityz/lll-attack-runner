@@ -692,6 +692,13 @@ function App() {
           </TabsList>
 
           <TabsContent value="upload" className="space-y-6">
+            <Alert className="border-accent/50 bg-accent/10">
+              <Lightbulb size={18} className="text-accent" weight="duotone" />
+              <AlertDescription className="text-sm">
+                <strong>Recommended Workflow:</strong> Upload signature data files directly for best results. 
+                Browser CORS policies may block direct blockchain API access.
+              </AlertDescription>
+            </Alert>
             <AddressLookup onAttackGenerated={handleAddressAttack} />
             <DataUpload onDataParsed={handleDataParsed} />
           </TabsContent>

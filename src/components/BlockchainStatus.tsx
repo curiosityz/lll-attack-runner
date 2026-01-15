@@ -24,7 +24,7 @@ export function BlockchainStatus({ rpcUrl }: BlockchainStatusProps) {
     let isActive = true
 
     const fetchBlockchainData = async () => {
-      if (!isActive) return
+      if (!isActive || !rpcUrl || rpcUrl.trim() === '') return
 
       try {
         setStatus('connecting')
@@ -35,13 +35,17 @@ export function BlockchainStatus({ rpcUrl }: BlockchainStatusProps) {
             method: 'eth_blockNumber',
             params: [],
             id: 1,
-          }, 2),
+          }, 2).catch(err => {
+            throw new Error('Failed to fetch block number')
+          }),
           fetchJSONWithCORSProxy(rpcUrl, {
             jsonrpc: '2.0',
             method: 'eth_chainId',
             params: [],
             id: 2,
-          }, 2),
+          }, 2).catch(err => {
+            throw new Error('Failed to fetch chain ID')
+          }),
         ])
 
         const newBlockNumber = parseInt(blockData.result, 16)
@@ -62,20 +66,15 @@ export function BlockchainStatus({ rpcUrl }: BlockchainStatusProps) {
       } catch (error) {
         if (isActive) {
           setStatus('error')
-          console.error('Blockchain status fetch error:', error)
         }
       }
     }
-
-    fetchBlockchainData()
-
-    pollInterval = setInterval(fetchBlockchainData, 12000)
 
     return () => {
       isActive = false
       if (pollInterval) clearInterval(pollInterval)
     }
-  }, [rpcUrl, latestBlock, lastUpdate])
+  }, [rpcUrl])
 
   const getStatusColor = () => {
     switch (status) {
