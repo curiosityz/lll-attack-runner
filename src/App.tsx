@@ -15,6 +15,7 @@ import { toast } from 'sonner'
 import { AttackHistory, AttackType, AttackTemplate, LLLStep, AlgorithmType } from '@/lib/types'
 import { runLLL, parseBasisFromString } from '@/lib/lll'
 import { runBKZ } from '@/lib/bkz'
+import { runPrecisionLLL, runPrecisionBKZ } from '@/lib/precision-wrapper'
 import { MatrixInput } from '@/components/MatrixInput'
 import { VectorDisplay } from '@/components/VectorDisplay'
 import { AttackCard } from '@/components/AttackCard'
@@ -32,6 +33,7 @@ import { analyzeSignatures, AnalysisResult, WeakSignature, PatternCluster } from
 import { ExplorerTransaction } from '@/lib/blockchain-explorer'
 import { extractPrivateKeyFromAttack, PrivateKeyResult } from '@/lib/privateKeyExtractor'
 import { PrivateKeyDisplay } from '@/components/PrivateKeyDisplay'
+import { PrecisionIndicator, PrecisionWarning } from '@/components/PrecisionIndicator'
 
 function formatMatrixForDisplay(basis: number[][]): string {
   return basis.map(row => 
@@ -65,6 +67,8 @@ function App() {
     solutionVector?: number[]
     algorithm?: AlgorithmType
     blockSize?: number
+    usedHighPrecision?: boolean
+    originalScale?: bigint
   } | null>(null)
   const [templateDialogOpen, setTemplateDialogOpen] = useState(false)
   
@@ -76,6 +80,7 @@ function App() {
   const [currentAttackSignatures, setCurrentAttackSignatures] = useState<ParsedSignature[]>([])
   const [currentWeaknessType, setCurrentWeaknessType] = useState<string>('')
   const [isNormalized, setIsNormalized] = useState(false)
+  const [usePrecisionMode, setUsePrecisionMode] = useState(true)
 
   const handleAddressAttack = (address: string, basis: number[][], attackName: string) => {
     setAttackType('signature-scan')
@@ -400,16 +405,36 @@ function App() {
     
     let lllResult: any
     
-    if (algorithm === 'bkz') {
-      const blockSizeValue = parseInt(blockSize)
-      if (isNaN(blockSizeValue) || blockSizeValue < 2) {
-        toast.error('Block size must be at least 2')
-        setIsRunning(false)
-        return
+    if (usePrecisionMode) {
+      if (algorithm === 'bkz') {
+        const blockSizeValue = parseInt(blockSize)
+        if (isNaN(blockSizeValue) || blockSizeValue < 2) {
+          toast.error('Block size must be at least 2')
+          setIsRunning(false)
+          return
+        }
+        lllResult = runPrecisionBKZ(basis, blockSizeValue, deltaValue, captureVisualization)
+      } else {
+        lllResult = runPrecisionLLL(basis, deltaValue, captureVisualization)
       }
-      lllResult = runBKZ(basis, blockSizeValue, deltaValue, captureVisualization)
+      
+      if (lllResult.usedHighPrecision) {
+        toast.success('High-precision BigInt arithmetic used', {
+          description: 'Full secp256k1 values handled without precision loss'
+        })
+      }
     } else {
-      lllResult = runLLL(basis, deltaValue, captureVisualization)
+      if (algorithm === 'bkz') {
+        const blockSizeValue = parseInt(blockSize)
+        if (isNaN(blockSizeValue) || blockSizeValue < 2) {
+          toast.error('Block size must be at least 2')
+          setIsRunning(false)
+          return
+        }
+        lllResult = runBKZ(basis, blockSizeValue, deltaValue, captureVisualization)
+      } else {
+        lllResult = runLLL(basis, deltaValue, captureVisualization)
+      }
     }
     
     const endTime = performance.now()
@@ -422,7 +447,9 @@ function App() {
       success: lllResult.success,
       solutionVector: lllResult.solutionVector,
       algorithm,
-      blockSize: algorithm === 'bkz' ? lllResult.blockSize : undefined
+      blockSize: algorithm === 'bkz' ? lllResult.blockSize : undefined,
+      usedHighPrecision: lllResult.usedHighPrecision,
+      originalScale: lllResult.originalScale
     }
 
     setResult(newResult)
@@ -705,6 +732,8 @@ function App() {
                         </AlertDescription>
                       </Alert>
                     )}
+                    
+                    <PrecisionWarning values={parseBasisFromString(basisInput)?.flat() || []} />
 
                     <div>
                       <Label htmlFor="delta" className="text-sm font-medium mb-2 block">
@@ -725,6 +754,20 @@ function App() {
                     </div>
 
                     <Separator />
+                    
+                    <div className="flex items-center space-x-2">
+                      <Checkbox
+                        id="use-precision"
+                        checked={usePrecisionMode}
+                        onCheckedChange={(checked) => setUsePrecisionMode(checked as boolean)}
+                      />
+                      <Label htmlFor="use-precision" className="text-sm font-medium cursor-pointer">
+                        Use high-precision arithmetic (BigInt)
+                      </Label>
+                    </div>
+                    <p className="text-xs text-muted-foreground -mt-2">
+                      Automatically handles full secp256k1 values without precision loss. Recommended for cryptographic attacks.
+                    </p>
 
                     <div className="flex items-center space-x-2">
                       <Checkbox
@@ -767,6 +810,17 @@ function App() {
               <div className="space-y-6">
                 {result ? (
                   <>
+                    {result.usedHighPrecision !== undefined && (
+                      <PrecisionIndicator 
+                        usedHighPrecision={result.usedHighPrecision}
+                        originalScale={result.originalScale}
+                        matrixSize={{ 
+                          rows: result.reducedBasis.length, 
+                          cols: result.reducedBasis[0]?.length || 0 
+                        }}
+                      />
+                    )}
+                    
                     <Card className="p-6 bg-card/80 backdrop-blur-sm border-border/60 shadow-lg">
                       <h2 className="text-xl font-bold mb-6 flex items-center gap-2">
                         <span className="w-1 h-6 bg-accent rounded-full"></span>
