@@ -1,4 +1,11 @@
 import { ParsedSignature } from './dataParser'
+import { 
+  selectDimension, 
+  DimensionSelectionResult, 
+  DimensionSelectorConfig,
+  validateDimensionConstraints,
+  selectBlockSize
+} from './dimension-selector'
 
 const SECP256K1_N = BigInt('0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141')
 
@@ -19,6 +26,8 @@ export interface HNPLatticeResult {
     latticeType: string
     estimatedComplexity: string
   }
+  /** Dimension selection result from the intelligent selector */
+  dimensionSelection?: DimensionSelectionResult
 }
 
 /**
@@ -374,3 +383,94 @@ export function selectOptimalLatticeType(signatureCount: number, knownBits: numb
   
   return 'standard'
 }
+
+/**
+ * Batch result from intelligent HNP lattice building
+ */
+export interface BatchHNPLatticeResult {
+  batches: HNPLatticeResult[]
+  dimensionSelection: DimensionSelectionResult
+  isValid: boolean
+  insufficientDataReason?: string
+  recommendedBlockSize: number
+}
+
+/**
+ * Build HNP lattice with intelligent dimension selection
+ * 
+ * This function uses the Dimension Selector to:
+ * 1. Analyze the bias in signatures
+ * 2. Select optimal dimension (80x80 for small bias, 40x40 for large bias)
+ * 3. Create batches if there are too many signatures (prevents 500x500 matrices)
+ * 4. Validate that d > 1.2 * (256 / expected_bias_bits)
+ * 
+ * @param signatures - Array of parsed signatures
+ * @param config - Optional configuration for dimension selection
+ * @returns Batch result with dimension selection info and lattice batches
+ */
+export function buildHNPLatticeWithDimensionSelection(
+  signatures: ParsedSignature[],
+  config?: DimensionSelectorConfig
+): BatchHNPLatticeResult {
+  // Step 1: Use Dimension Selector to analyze input and select optimal dimension
+  const dimensionSelection = selectDimension(signatures, config)
+  
+  // Step 2: Check if we have sufficient data
+  if (!dimensionSelection.isValid) {
+    return {
+      batches: [],
+      dimensionSelection,
+      isValid: false,
+      insufficientDataReason: dimensionSelection.insufficientDataReason,
+      recommendedBlockSize: 0
+    }
+  }
+
+  const knownBits = config?.expectedBiasBits ?? dimensionSelection.expectedBiasBits
+  
+  // Step 3: Build lattices for each batch
+  const batches: HNPLatticeResult[] = dimensionSelection.batches.map((batch, index) => {
+    // Determine lattice type based on batch size
+    const latticeType = selectOptimalLatticeType(batch.length, knownBits)
+    
+    let result: HNPLatticeResult
+    if (latticeType === 'embedded') {
+      result = buildEmbeddedHNPLattice(batch, knownBits)
+    } else if (latticeType === 'kannan') {
+      result = buildKannanEmbeddingLattice(batch, knownBits)
+    } else {
+      result = buildHNPLattice(batch, knownBits)
+    }
+    
+    // Add dimension selection info
+    result.dimensionSelection = dimensionSelection
+    
+    return result
+  })
+
+  return {
+    batches,
+    dimensionSelection,
+    isValid: true,
+    recommendedBlockSize: dimensionSelection.recommendedBlockSize
+  }
+}
+
+/**
+ * Validate if the current lattice configuration meets the dimension constraints
+ * 
+ * @param signatureCount - Number of signatures
+ * @param expectedBiasBits - Expected bias in bits
+ * @returns Validation result with error message if invalid
+ */
+export function validateLatticeConfiguration(
+  signatureCount: number,
+  expectedBiasBits: number
+): { valid: boolean; message?: string } {
+  return validateDimensionConstraints(signatureCount, expectedBiasBits)
+}
+
+/**
+ * Get recommended block size for a given dimension
+ */
+export { selectBlockSize } from './dimension-selector'
