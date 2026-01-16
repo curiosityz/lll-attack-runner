@@ -21,6 +21,7 @@ import {
   parseTransactionsTSV
 } from './blockchair-parser'
 import { calculateBitcoinSighash, RawTransaction } from './sighashCalculator'
+import { ripemd160, sha256, hexToBytes, bytesToHex } from './crypto-utils'
 
 // ============================================================================
 // Types and Interfaces
@@ -704,18 +705,18 @@ export class DuckDBClient {
       if (pubKeyHex.length !== pubKeyPushLen * 2) return null
       
       // Compute pubkeyhash = RIPEMD160(SHA256(pubkey))
-      const pubKeyBytes = this.hexToBytes(pubKeyHex)
+      const pubKeyBytes = hexToBytes(pubKeyHex)
       
-      // SHA256 first
-      const sha256Buffer = await crypto.subtle.digest('SHA-256', pubKeyBytes)
-      const sha256Hash = new Uint8Array(sha256Buffer)
+      // SHA256 first using imported function
+      const sha256Hash = await sha256(pubKeyBytes)
       
-      // RIPEMD160 - since Web Crypto doesn't support RIPEMD160,
-      // we'll use a simple implementation or return null
-      // For now, we document this limitation and return null
-      // A full implementation would require a RIPEMD160 library
-      console.warn('[BlockchainDB] RIPEMD160 not available in Web Crypto, cannot derive scriptPubKey from scriptSig')
-      return null
+      // RIPEMD160 using imported function
+      const pubKeyHash = ripemd160(sha256Hash)
+      
+      // Build P2PKH scriptPubKey: OP_DUP OP_HASH160 <20 bytes> OP_EQUALVERIFY OP_CHECKSIG
+      // = 76 a9 14 <pubkeyhash> 88 ac
+      const scriptPubKey = '76a914' + bytesToHex(pubKeyHash) + '88ac'
+      return scriptPubKey
       
     } catch (error) {
       console.warn('[BlockchainDB] Failed to parse scriptSig:', error)
@@ -727,12 +728,7 @@ export class DuckDBClient {
    * Convert hex string to Uint8Array
    */
   private hexToBytes(hex: string): Uint8Array {
-    const cleaned = hex.startsWith('0x') ? hex.slice(2) : hex
-    const bytes = new Uint8Array(cleaned.length / 2)
-    for (let i = 0; i < cleaned.length; i += 2) {
-      bytes[i / 2] = parseInt(cleaned.substring(i, i + 2), 16)
-    }
-    return bytes
+    return hexToBytes(hex)
   }
 
   /**

@@ -10,6 +10,12 @@
 
 import { ParsedSignature } from './dataParser'
 import { BKZResult } from './bkz'
+import { 
+  publicKeyToBitcoinAddress, 
+  publicKeyToEthereumAddress,
+  privateKeyToWIF as cryptoPrivateKeyToWIF,
+  hexToBytes
+} from './crypto-utils'
 
 // secp256k1 curve constants
 const SECP256K1_N = BigInt('0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141')
@@ -124,89 +130,28 @@ function pointMultiply(k: bigint, x: bigint = SECP256K1_Gx, y: bigint = SECP256K
 }
 
 /**
- * Convert public key to Bitcoin address (P2PKH format)
- * 
- * NOTE: This is a simplified/placeholder implementation for demonstration purposes.
- * In a production environment, you would need proper crypto libraries (e.g., bitcoinjs-lib)
- * to perform real SHA256+RIPEMD160 hashing and Base58Check encoding.
- * 
- * The simplified hash is used for comparing derived addresses in the lattice attack context,
- * where we're primarily checking if the math is consistent, not generating real Bitcoin addresses.
+ * Convert public key to address
+ * Detects Bitcoin or Ethereum format based on target address format
  */
-function publicKeyToAddress(pubKeyX: bigint, pubKeyY: bigint): string {
-  // In a real implementation, this would:
-  // 1. Create uncompressed public key: 04 + x + y
-  // 2. SHA256 hash
-  // 3. RIPEMD160 hash
-  // 4. Add version byte
-  // 5. Double SHA256 checksum
-  // 6. Base58Check encode
+async function publicKeyToAddress(pubKeyX: bigint, pubKeyY: bigint, targetAddress?: string): Promise<string> {
+  // Detect address type from target address format
+  const isEthereum = targetAddress && (targetAddress.startsWith('0x') || targetAddress.length === 42)
   
-  // For now, return a hash representation for comparison
-  const pubKeyHex = '04' + pubKeyX.toString(16).padStart(64, '0') + pubKeyY.toString(16).padStart(64, '0')
-  
-  // Simple deterministic hash for address representation (not real Bitcoin address derivation)
-  // This is consistent for the same public key but NOT a valid Bitcoin address
-  let hash = 0n
-  for (let i = 0; i < pubKeyHex.length; i++) {
-    hash = (hash * 31n + BigInt(pubKeyHex.charCodeAt(i))) % (2n ** 160n)
+  if (isEthereum) {
+    // Ethereum address: keccak256(pubkey)[12:]
+    return publicKeyToEthereumAddress(pubKeyX, pubKeyY)
+  } else {
+    // Bitcoin address: Base58Check(version + RIPEMD160(SHA256(pubkey)))
+    return await publicKeyToBitcoinAddress(pubKeyX, pubKeyY, true, false)
   }
-  
-  return hash.toString(16).padStart(40, '0')
 }
 
 /**
  * Convert private key to WIF (Wallet Import Format)
- * 
- * NOTE: This is a simplified/placeholder implementation for demonstration purposes.
- * The checksum used here is NOT the proper double SHA256 checksum required by Bitcoin.
- * In production, you would need a proper crypto library to generate valid WIF strings.
- * 
- * The output format resembles WIF but should be treated as a display value only.
- * Use a proper Bitcoin library (e.g., bitcoinjs-lib) for wallet imports.
+ * Uses proper double SHA256 checksum and Base58Check encoding
  */
-function privateKeyToWIF(privateKey: bigint, compressed: boolean = true): string {
-  // WIF format:
-  // 1. Add version byte (0x80 for mainnet)
-  // 2. If compressed, add 0x01 suffix
-  // 3. Double SHA256 checksum (first 4 bytes) - SIMPLIFIED HERE
-  // 4. Base58Check encode
-  
-  const privateKeyHex = privateKey.toString(16).padStart(64, '0')
-  const versionByte = '80' // Mainnet
-  const compressionFlag = compressed ? '01' : ''
-  
-  const payload = versionByte + privateKeyHex + compressionFlag
-  
-  // Base58 alphabet
-  const ALPHABET = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz'
-  
-  // Convert hex to BigInt for Base58 encoding
-  let num = BigInt('0x' + payload)
-  
-  // Simplified checksum (NOT proper double SHA256 - for display only)
-  // In production, use: sha256(sha256(payload)).slice(0, 8)
-  const checksum = (num % (2n ** 32n)).toString(16).padStart(8, '0')
-  num = BigInt('0x' + payload + checksum)
-  
-  // Base58 encode
-  let result = ''
-  while (num > 0n) {
-    const remainder = Number(num % 58n)
-    result = ALPHABET[remainder] + result
-    num = num / 58n
-  }
-  
-  // Add leading '1's for leading zero bytes
-  for (let i = 0; i < payload.length; i += 2) {
-    if (payload.substring(i, i + 2) === '00') {
-      result = '1' + result
-    } else {
-      break
-    }
-  }
-  
-  return result
+async function privateKeyToWIF(privateKey: bigint, compressed: boolean = true): Promise<string> {
+  return await cryptoPrivateKeyToWIF(privateKey, compressed, false)
 }
 
 /**
@@ -258,21 +203,19 @@ function recoverPrivateKey(
 
 /**
  * Validate if the recovered private key matches the expected address
- * 
- * NOTE: Due to the simplified address generation (see publicKeyToAddress),
- * validation is limited. In production, use proper crypto libraries for accurate matching.
+ * Uses proper cryptographic address derivation
  */
-function validatePrivateKey(
+async function validatePrivateKey(
   privateKey: bigint,
   targetAddress?: string
-): { isValid: boolean; derivedAddress: string } {
+): Promise<{ isValid: boolean; derivedAddress: string }> {
   if (privateKey <= 0n || privateKey >= SECP256K1_N) {
     return { isValid: false, derivedAddress: '' }
   }
   
   try {
     const [pubX, pubY] = pointMultiply(privateKey)
-    const derivedAddress = publicKeyToAddress(pubX, pubY)
+    const derivedAddress = await publicKeyToAddress(pubX, pubY, targetAddress)
     
     if (!targetAddress) {
       // No target to validate against - key is mathematically valid but not verified
@@ -284,18 +227,16 @@ function validatePrivateKey(
     // Remove common prefixes and convert to lowercase for comparison
     const normalizedTarget = targetAddress.toLowerCase()
       .replace(/^0x/, '')        // Ethereum prefix
-      .replace(/^(1|3|bc1)/, '') // Bitcoin prefixes
       .trim()
     const normalizedDerived = derivedAddress.toLowerCase().replace(/^0x/, '')
     
-    // Strict comparison: require exact match or very high similarity
-    // Only consider it valid if there's a substantial match (at least 32 chars)
-    const minMatchLength = Math.min(32, normalizedTarget.length, normalizedDerived.length)
+    // Strict comparison: require exact match
     const isExactMatch = normalizedDerived === normalizedTarget
-    const isPartialMatch = minMatchLength >= 16 && 
-                          normalizedDerived.substring(0, minMatchLength) === normalizedTarget.substring(0, minMatchLength)
     
-    const isValid = isExactMatch || isPartialMatch
+    // For Bitcoin addresses, compare the full Base58Check string
+    const isBitcoinMatch = derivedAddress === targetAddress
+    
+    const isValid = isExactMatch || isBitcoinMatch
     
     return { isValid, derivedAddress }
   } catch {
@@ -307,11 +248,11 @@ function validatePrivateKey(
  * Main Result Interpreter function
  * Triggers after BKZ converges to interpret the results
  */
-export function interpretBKZResult(
+export async function interpretBKZResult(
   bkzResult: BKZResult,
   signatures: ParsedSignature[],
   config: InterpreterConfig = {}
-): InterpreterResult {
+): Promise<InterpreterResult> {
   const { targetAddress, bias = 0n, scalingFactor = 1n } = config
   
   // Check if we have valid input
@@ -391,7 +332,7 @@ export function interpretBKZResult(
         if (privateKey <= 0n || privateKey >= SECP256K1_N) continue
         
         // Step 4: Validate the key
-        const validation = validatePrivateKey(privateKey, targetAddress)
+        const validation = await validatePrivateKey(privateKey, targetAddress)
         
         // Calculate confidence based on validation and vector properties
         let confidence = 0.3 // Base confidence for finding a non-trivial key
@@ -413,7 +354,7 @@ export function interpretBKZResult(
           bestConfidence = confidence
           
           const privateKeyHex = '0x' + privateKey.toString(16).padStart(64, '0')
-          const privateKeyWIF = privateKeyToWIF(privateKey)
+          const privateKeyWIF = await privateKeyToWIF(privateKey)
           
           bestResult = {
             status: validation.isValid ? 'KEY_FOUND' : 'NOT_FOUND',
@@ -480,11 +421,11 @@ export function interpretBKZResult(
         
         if (privateKey <= 0n || privateKey >= SECP256K1_N) continue
         
-        const validation = validatePrivateKey(privateKey, targetAddress)
+        const validation = await validatePrivateKey(privateKey, targetAddress)
         
         if (validation.isValid) {
           const privateKeyHex = '0x' + privateKey.toString(16).padStart(64, '0')
-          const privateKeyWIF = privateKeyToWIF(privateKey)
+          const privateKeyWIF = await privateKeyToWIF(privateKey)
           
           return {
             status: 'KEY_FOUND',
@@ -529,12 +470,12 @@ export function interpretBKZResult(
  * Wrapper function for silent mode operation
  * Returns only the essential status message
  */
-export function interpretBKZResultSilent(
+export async function interpretBKZResultSilent(
   bkzResult: BKZResult,
   signatures: ParsedSignature[],
   config: InterpreterConfig = {}
-): string {
-  const result = interpretBKZResult(bkzResult, signatures, { ...config, silentMode: true })
+): Promise<string> {
+  const result = await interpretBKZResult(bkzResult, signatures, { ...config, silentMode: true })
   return result.message
 }
 

@@ -710,7 +710,7 @@ function App() {
     if (algorithm === 'bkz' && lllResult.success && currentAttackSignatures.length > 0) {
       setAttackProgress('Attacking...')
       
-      interpretedResult = interpretBKZResult(
+      interpretedResult = await interpretBKZResult(
         lllResult,
         currentAttackSignatures,
         {
