@@ -87,6 +87,7 @@ export function BlockchairDataImport({ className, onImportComplete }: Blockchair
   const [fileProgress, setFileProgress] = useState<Map<string, FileProgress>>(new Map())
   const [recentProgress, setRecentProgress] = useState<FileProgress[]>([])
   const [urlListInfo, setUrlListInfo] = useState<{ totalUrls: number; byType: Record<string, number> } | null>(null)
+  const [urlListContent, setUrlListContent] = useState<string | null>(null)
   
   // Database state
   const [isDbReady, setIsDbReady] = useState(false)
@@ -111,13 +112,21 @@ export function BlockchairDataImport({ className, onImportComplete }: Blockchair
           const response = await fetch('/dl-urls.txt')
           if (response.ok) {
             const content = await response.text()
+            setUrlListContent(content) // Cache content for later use
+            
             const parsed = parseUrlListFile(content)
-            const byType: Record<string, number> = {}
-            for (const item of parsed) {
-              const type = item.dataType
-              byType[type] = (byType[type] || 0) + 1
-            }
-            setUrlListInfo({ totalUrls: parsed.length, byType })
+            // Filter out 'blocks' and 'unknown' types and count only valid data types
+            const byType = parsed
+              .filter(item => ['outputs', 'inputs', 'transactions'].includes(item.dataType))
+              .reduce((acc, item) => {
+                acc[item.dataType] = (acc[item.dataType] || 0) + 1
+                return acc
+              }, {} as Record<string, number>)
+            
+            setUrlListInfo({ 
+              totalUrls: parsed.filter(item => ['outputs', 'inputs', 'transactions'].includes(item.dataType)).length, 
+              byType 
+            })
           }
         } catch (error) {
           console.warn('Could not fetch dl-urls.txt:', error)
@@ -280,16 +289,20 @@ export function BlockchairDataImport({ className, onImportComplete }: Blockchair
     setStats(null)
     
     try {
-      // Fetch dl-urls.txt
-      toast.info('Fetching URL list...')
-      const response = await fetch('/dl-urls.txt')
-      if (!response.ok) {
-        throw new Error('Failed to fetch dl-urls.txt')
+      let content = urlListContent
+      
+      // If content is not cached, fetch it
+      if (!content) {
+        toast.info('Fetching URL list...')
+        const response = await fetch('/dl-urls.txt')
+        if (!response.ok) {
+          throw new Error('Failed to fetch dl-urls.txt')
+        }
+        content = await response.text()
+        setUrlListContent(content) // Cache for future use
       }
       
-      const urlListContent = await response.text()
-      
-      const finalStats = await importFromUrlList(urlListContent, {
+      const finalStats = await importFromUrlList(content, {
         dataTypes,
         onProgress: handleProgress,
         onStats: handleStats,
