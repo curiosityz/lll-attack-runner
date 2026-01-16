@@ -151,6 +151,10 @@ class CORSProxyManager {
 
 export const corsProxyManager = new CORSProxyManager()
 
+// Timeout configuration
+const DIRECT_FETCH_TIMEOUT_MS = 8000
+const PROXY_FETCH_TIMEOUT_MS = 10000
+
 export async function fetchWithCORSProxy(
   targetUrl: string,
   options: RequestInit = {},
@@ -179,7 +183,7 @@ export async function fetchWithCORSProxy(
   // Try direct fetch first
   try {
     const controller = new AbortController()
-    const timeoutId = setTimeout(() => controller.abort(), 8000)
+    const timeoutId = setTimeout(() => controller.abort(), DIRECT_FETCH_TIMEOUT_MS)
 
     const response = await fetch(targetUrl, {
       ...options,
@@ -224,7 +228,7 @@ export async function fetchWithCORSProxy(
         try {
           const startTime = Date.now()
           const controller = new AbortController()
-          const timeoutId = setTimeout(() => controller.abort(), 10000)
+          const timeoutId = setTimeout(() => controller.abort(), PROXY_FETCH_TIMEOUT_MS)
           
           const response = await fetch(proxyUrl, {
             ...options,
