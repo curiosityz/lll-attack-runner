@@ -6,7 +6,7 @@ import {
   parseDERSignature as parseBlockchairDER
 } from './blockchair-parser'
 
-// Hexadecimal validation pattern
+// Hexadecimal validation pattern - matches strings containing only hex digits (0-9, a-f, A-F)
 const HEX_PATTERN = /^[0-9a-fA-F]+$/
 
 export interface ParsedTransaction {
