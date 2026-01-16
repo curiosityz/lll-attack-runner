@@ -419,6 +419,164 @@ export async function checkFileExists(url: string): Promise<boolean> {
 }
 
 // ============================================================================
+// URL List Parsing
+// ============================================================================
+
+/**
+ * Parse a URL list file (like dl-urls.txt) to extract download URLs
+ * The file format is: "N. http://url" where N is a line number
+ * 
+ * @param content - The raw content of the URL list file
+ * @returns Array of parsed URLs with their data types
+ */
+export function parseUrlListFile(content: string): { 
+  url: string
+  dataType: DataType | 'blocks' | 'unknown'
+  date?: string 
+}[] {
+  const lines = content.split('\n').filter(line => line.trim())
+  const results: { url: string; dataType: DataType | 'blocks' | 'unknown'; date?: string }[] = []
+  
+  for (const line of lines) {
+    // Remove line number prefix (e.g., "1. http://...")
+    const match = line.match(/^\d+\.\s*(.+)$/)
+    const url = match ? match[1].trim() : line.trim()
+    
+    if (!url.startsWith('http')) continue
+    
+    // Detect data type from URL pattern
+    let dataType: DataType | 'blocks' | 'unknown' = 'unknown'
+    let date: string | undefined
+    
+    if (url.includes('/outputs/')) {
+      dataType = 'outputs'
+      const dateMatch = url.match(/outputs_(\d{8})\.tsv/)
+      if (dateMatch) date = dateMatch[1]
+    } else if (url.includes('/inputs/')) {
+      dataType = 'inputs'
+      const dateMatch = url.match(/inputs_(\d{8})\.tsv/)
+      if (dateMatch) date = dateMatch[1]
+    } else if (url.includes('/transactions/')) {
+      dataType = 'transactions'
+      const dateMatch = url.match(/transactions_(\d{8})\.tsv/)
+      if (dateMatch) date = dateMatch[1]
+    } else if (url.includes('block_hash')) {
+      dataType = 'blocks'
+    }
+    
+    results.push({ url, dataType, date })
+  }
+  
+  return results
+}
+
+/**
+ * Import from a URL list file
+ * Filters for specified data types and downloads matching files
+ */
+export async function importFromUrlList(
+  urlListContent: string,
+  options: {
+    dataTypes?: DataType[]
+    onProgress?: (progress: ImportProgress) => void
+    onStats?: (stats: ImportStats) => void
+    concurrency?: number
+  } = {}
+): Promise<ImportStats> {
+  const {
+    dataTypes = ['inputs'],
+    onProgress,
+    onStats,
+    concurrency = 5
+  } = options
+  
+  const parsedUrls = parseUrlListFile(urlListContent)
+  const filteredUrls = parsedUrls.filter(u => 
+    dataTypes.includes(u.dataType as DataType)
+  )
+  
+  const db = getDuckDBClient()
+  await db.initialize()
+  
+  const stats: ImportStats = {
+    totalFiles: filteredUrls.length,
+    completedFiles: 0,
+    totalRows: 0,
+    bytesDownloaded: 0,
+    errors: [],
+    startTime: Date.now(),
+    elapsedMs: 0
+  }
+  
+  // Process with controlled concurrency
+  const queue = [...filteredUrls]
+  
+  const processNext = async (): Promise<void> => {
+    while (queue.length > 0) {
+      const item = queue.shift()
+      if (!item) break
+      
+      const progress: ImportProgress = {
+        type: item.dataType as DataType,
+        date: item.date || 'unknown',
+        status: 'downloading',
+        progress: 0
+      }
+      
+      onProgress?.(progress)
+      
+      try {
+        const content = await downloadAndDecompress(item.url, (downloaded, total) => {
+          stats.bytesDownloaded = downloaded
+          progress.progress = Math.round((downloaded / total) * 50)
+          onProgress?.({ ...progress })
+        })
+        
+        progress.status = 'importing'
+        progress.progress = 50
+        onProgress?.({ ...progress })
+        
+        const tableName = item.dataType === 'outputs' ? 'bitcoin_outputs' :
+                         item.dataType === 'inputs' ? 'bitcoin_inputs' :
+                         'bitcoin_transactions'
+        
+        const rowsImported = await db.importFromTSVContent(content, tableName)
+        
+        stats.completedFiles++
+        stats.totalRows += rowsImported
+        
+        progress.status = 'complete'
+        progress.progress = 100
+        progress.rowsImported = rowsImported
+        onProgress?.({ ...progress })
+      } catch (error) {
+        const errorMsg = `${item.url}: ${error instanceof Error ? error.message : 'Unknown error'}`
+        stats.errors.push(errorMsg)
+        stats.completedFiles++
+        
+        progress.status = 'error'
+        progress.error = errorMsg
+        onProgress?.({ ...progress })
+      }
+      
+      stats.elapsedMs = Date.now() - stats.startTime
+      onStats?.({ ...stats })
+    }
+  }
+  
+  // Start concurrent workers
+  const workers: Promise<void>[] = []
+  for (let i = 0; i < concurrency; i++) {
+    workers.push(processNext())
+  }
+  
+  await Promise.all(workers)
+  
+  stats.elapsedMs = Date.now() - stats.startTime
+  return stats
+}
+
+// ============================================================================
 // Export Functions
 // ============================================================================
 

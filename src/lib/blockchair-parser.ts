@@ -645,13 +645,25 @@ export function extractSignaturesFromInputs(
         continue
       }
       
-      // For now, use transaction hash as Z (message hash placeholder)
-      // In a full implementation, this would be calculated using the pre-image
-      const zPlaceholder = input.transactionHash 
-        ? BigInt('0x' + (input.transactionHash.startsWith('0x') 
-            ? input.transactionHash.slice(2) 
-            : input.transactionHash))
-        : 0n
+      // Z (sighash) calculation from Blockchair TSV dumps:
+      // The Blockchair TSV dumps do not include the raw transaction bytes needed
+      // to compute the actual sighash (Z). The transaction hash is stored as a 
+      // reference identifier, but it is NOT the sighash used in ECDSA signing.
+      // 
+      // For full sighash calculation, you would need:
+      // 1. For Legacy P2PKH: The serialized unsigned transaction with the input's 
+      //    scriptPubKey inserted and SIGHASH type appended
+      // 2. For SegWit P2WPKH: BIP143 preimage construction
+      //
+      // To get actual Z values, use one of these approaches:
+      // - Fetch full transaction via RPC and compute sighash using calculateBitcoinSighash()
+      // - Import additional data sources that include transaction pre-images
+      //
+      // For nonce reuse detection (the primary vulnerability), this doesn't matter
+      // since we detect based on R value reuse across different transactions.
+      // The Z value primarily matters for private key extraction after detecting
+      // a vulnerability.
+      const zRequiresCalculation = 0n // Mark as needing external calculation
       
       // Parse timestamp
       let timestamp = 0
@@ -666,7 +678,7 @@ export function extractSignaturesFromInputs(
       const extractedSig: ExtractedSignature = {
         r: sigData.r,
         s: sigData.s,
-        z: zPlaceholder,
+        z: zRequiresCalculation,
         publicKey: publicKey || undefined,
         address: input.recipient,
         transactionHash: input.transactionHash,

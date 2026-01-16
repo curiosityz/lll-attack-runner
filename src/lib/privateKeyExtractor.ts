@@ -1,4 +1,5 @@
 import { ParsedSignature } from './dataParser'
+import { publicKeyToEthereumAddress, keccak256, hexToBytes, bytesToHex } from './crypto-utils'
 
 const SECP256K1_N = BigInt('0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141')
 const SECP256K1_Gx = BigInt('0x79BE667EF9DCBBAC55A06295CE870B07029BFCDB2DCE28D959F2815B16F81798')
@@ -99,20 +100,8 @@ function pointMultiply(k: bigint, x: bigint = SECP256K1_Gx, y: bigint = SECP256K
 }
 
 function publicKeyToAddress(pubKeyX: bigint, pubKeyY: bigint): string {
-  const pubKeyHex = '04' + pubKeyX.toString(16).padStart(64, '0') + pubKeyY.toString(16).padStart(64, '0')
-  
-  const hash = simpleKeccak256(pubKeyHex)
-  const address = '0x' + hash.slice(-40)
-  
-  return address.toLowerCase()
-}
-
-function simpleKeccak256(hex: string): string {
-  let result = ''
-  for (let i = 0; i < 64; i++) {
-    result += '0123456789abcdef'[Math.floor(Math.random() * 16)]
-  }
-  return result
+  // Use the proper Ethereum address derivation from crypto-utils
+  return publicKeyToEthereumAddress(pubKeyX, pubKeyY)
 }
 
 function extractPrivateKeyFromNonceReuse(sig1: ParsedSignature, sig2: ParsedSignature): bigint | null {
