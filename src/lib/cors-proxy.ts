@@ -215,8 +215,10 @@ export async function fetchWithCORSProxy(
         availableProxies = CORS_PROXIES.slice().sort((a, b) => a.priority - b.priority)
       }
       
-      // Try each proxy once
-      for (const proxy of availableProxies.slice(0, maxRetries + 1)) {
+      // Try up to maxRetries different proxies
+      const proxiesToTry = Math.min(availableProxies.length, maxRetries)
+      for (let i = 0; i < proxiesToTry; i++) {
+        const proxy = availableProxies[i]
         const proxyUrl = proxy.url(targetUrl)
         
         try {
