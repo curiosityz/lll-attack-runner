@@ -20,10 +20,17 @@ import {
   parseOutputsTSV,
   parseTransactionsTSV
 } from './blockchair-parser'
+import { calculateBitcoinSighash, RawTransaction } from './sighashCalculator'
 
 // ============================================================================
 // Types and Interfaces
 // ============================================================================
+
+// Bitcoin sighash type constants
+const SIGHASH_ALL = 1
+const SIGHASH_NONE = 2
+const SIGHASH_SINGLE = 3
+const SIGHASH_ANYONECANPAY = 0x80
 
 export interface DuckDBConfig {
   persistToIndexedDB?: boolean
@@ -93,8 +100,14 @@ interface StoredInput {
   recipient?: string
   type?: string
   scriptHex?: string
+  scriptPubKeyHex?: string  // Script of the output being spent (needed for sighash)
   spendingSignatureHex?: string
   spendingWitnessHex?: string
+  spendingSequence?: number
+  spendingNLocktime?: number
+  // Reference to spent output for sighash reconstruction
+  spentTxHash?: string
+  spentVout?: number
 }
 
 interface StoredOutput {
@@ -274,8 +287,13 @@ export class DuckDBClient {
           recipient: input.recipient,
           type: input.type,
           scriptHex: input.scriptHex,
+          scriptPubKeyHex: input.scriptPubKeyHex,
           spendingSignatureHex: input.spendingSignatureHex,
-          spendingWitnessHex: input.spendingWitnessHex
+          spendingWitnessHex: input.spendingWitnessHex,
+          spendingSequence: input.spendingSequence,
+          spendingNLocktime: input.spendingNLocktime,
+          spentTxHash: input.spendingTransactionHash,
+          spentVout: input.spendingIndex
         }
         store.put(stored)
       }
@@ -433,13 +451,388 @@ export class DuckDBClient {
   }
 
   /**
-   * Calculate Z (message hash) for signatures - placeholder
+   * Calculate Z (message hash / sighash) for signatures
+   * 
+   * For Bitcoin, Z is the double SHA256 hash of the transaction pre-image.
+   * The pre-image is constructed by:
+   * 1. Serializing the transaction with scriptPubKey in the input being signed
+   * 2. Appending the sighash type (usually SIGHASH_ALL = 0x01)
+   * 3. Double SHA256 hashing the result
+   * 
+   * This requires:
+   * - Transaction version, inputs, outputs, and locktime
+   * - The scriptPubKey of the output being spent
+   * - The sighash type from the signature
    */
   async calculateZ(): Promise<number> {
-    // In a full implementation, this would calculate the actual sighash
-    // For now, we're using the transaction hash as a placeholder
-    console.log('[BlockchainDB] Z calculation uses transaction hash as placeholder')
-    return 0
+    if (!this.db) throw new Error('Database not connected')
+
+    console.log('[BlockchainDB] Starting Z (sighash) calculation...')
+
+    // Get all signatures that need Z calculation
+    const sigsNeedingZ = await this.getSignaturesNeedingZCalculation()
+    
+    if (sigsNeedingZ.length === 0) {
+      console.log('[BlockchainDB] No signatures need Z calculation')
+      return 0
+    }
+
+    console.log(`[BlockchainDB] Found ${sigsNeedingZ.length} signatures needing Z calculation`)
+
+    let calculatedCount = 0
+    const batchSize = 100
+
+    for (let i = 0; i < sigsNeedingZ.length; i += batchSize) {
+      const batch = sigsNeedingZ.slice(i, i + batchSize)
+      
+      for (const sig of batch) {
+        try {
+          const z = await this.calculateSighashForSignature(sig)
+          if (z) {
+            await this.updateSignatureZ(sig.id, z)
+            calculatedCount++
+          }
+        } catch (error) {
+          console.warn(`[BlockchainDB] Failed to calculate Z for ${sig.transactionHash}:${sig.inputIndex}:`, error)
+        }
+      }
+
+      // Log progress
+      if ((i + batchSize) % 1000 === 0 || i + batchSize >= sigsNeedingZ.length) {
+        console.log(`[BlockchainDB] Z calculation progress: ${Math.min(i + batchSize, sigsNeedingZ.length)}/${sigsNeedingZ.length}`)
+      }
+    }
+
+    console.log(`[BlockchainDB] Calculated Z for ${calculatedCount} signatures`)
+    return calculatedCount
+  }
+
+  /**
+   * Get signatures that have placeholder Z (transaction hash) or empty Z
+   */
+  private async getSignaturesNeedingZCalculation(): Promise<StoredSignature[]> {
+    return new Promise((resolve, reject) => {
+      const transaction = this.db!.transaction([STORE_NAMES.signatures], 'readonly')
+      const store = transaction.objectStore(STORE_NAMES.signatures)
+      const signatures: StoredSignature[] = []
+
+      const request = store.openCursor()
+      request.onerror = () => reject(request.error)
+      request.onsuccess = (event) => {
+        const cursor = (event.target as IDBRequest<IDBCursorWithValue>).result
+        if (cursor) {
+          const sig = cursor.value as StoredSignature
+          // Check if Z is empty or is just the transaction hash (placeholder)
+          // Normalize transaction hash once for comparison
+          const normalizedTxHash = sig.transactionHash.startsWith('0x') 
+            ? sig.transactionHash.slice(2) 
+            : sig.transactionHash
+          const needsCalculation = !sig.z || 
+                                   sig.z === '' || 
+                                   sig.z === sig.transactionHash || 
+                                   sig.z === normalizedTxHash
+          if (needsCalculation) {
+            signatures.push(sig)
+          }
+          cursor.continue()
+        } else {
+          resolve(signatures)
+        }
+      }
+    })
+  }
+
+  /**
+   * Calculate the actual sighash for a signature using the transaction pre-image
+   */
+  private async calculateSighashForSignature(sig: StoredSignature): Promise<string | null> {
+    // Get all inputs for this transaction to reconstruct the pre-image
+    const txInputs = await this.getInputsForTransaction(sig.transactionHash)
+    const txOutputs = await this.getOutputsForTransaction(sig.transactionHash)
+    const txData = await this.getTransactionData(sig.transactionHash)
+
+    // Check if we have the minimum required data
+    if (!txInputs.length) {
+      console.warn(`[BlockchainDB] No inputs found for ${sig.transactionHash}`)
+      return null
+    }
+    
+    if (!txOutputs.length) {
+      console.warn(`[BlockchainDB] No outputs found for ${sig.transactionHash}`)
+      return null
+    }
+
+    // Find the input data for the signature we're calculating
+    const inputData = txInputs.find(i => i.inputIndex === sig.inputIndex)
+    if (!inputData) {
+      console.warn(`[BlockchainDB] No input data found for ${sig.transactionHash}:${sig.inputIndex}`)
+      return null
+    }
+
+    // The scriptPubKey should be from the output being spent
+    // If we have it directly in the input data, use it
+    let scriptPubKey = inputData.scriptPubKeyHex
+
+    // If not available, try to look it up from outputs table
+    if (!scriptPubKey && inputData.spentTxHash && inputData.spentVout !== undefined) {
+      const spentOutput = await this.getOutput(inputData.spentTxHash, inputData.spentVout)
+      if (spentOutput?.scriptPubKeyHex) {
+        scriptPubKey = spentOutput.scriptPubKeyHex
+      }
+    }
+
+    if (!scriptPubKey) {
+      // Last resort: derive from scriptHex if it's a P2PKH/P2SH spending script
+      scriptPubKey = await this.deriveScriptPubKeyFromScriptSig(inputData.scriptHex || '')
+    }
+
+    if (!scriptPubKey) {
+      console.warn(`[BlockchainDB] No scriptPubKey available for ${sig.transactionHash}:${sig.inputIndex}`)
+      return null
+    }
+
+    return await this.calculateSighashWithScriptPubKey(
+      sig,
+      scriptPubKey,
+      txData?.version || 1,
+      txData?.lockTime || 0,
+      txInputs,
+      txOutputs
+    )
+  }
+
+  /**
+   * Calculate sighash with the provided scriptPubKey
+   */
+  private async calculateSighashWithScriptPubKey(
+    sig: StoredSignature,
+    scriptPubKey: string,
+    version: number,
+    lockTime: number,
+    inputs: StoredInput[],
+    outputs: StoredOutput[]
+  ): Promise<string> {
+    // Validate that we have the required spent output references
+    // Each input must know which output it's spending (spentTxHash, spentVout)
+    const validInputs = inputs.filter(input => 
+      input.spentTxHash && input.spentVout !== undefined
+    )
+    
+    if (validInputs.length !== inputs.length) {
+      console.warn(`[BlockchainDB] Some inputs missing spent output references for ${sig.transactionHash}`)
+    }
+
+    // Reconstruct the transaction structure for sighash calculation
+    // Note: For proper sighash calculation, we need the txid of the transaction
+    // that created the output being spent (spentTxHash), not the current transaction
+    const rawTx: RawTransaction = {
+      version: version,
+      vin: inputs.map(input => {
+        // spentTxHash is the txid of the previous transaction that created the UTXO
+        // spentVout is the output index in that previous transaction
+        if (!input.spentTxHash || input.spentVout === undefined) {
+          // Cannot calculate sighash without proper UTXO reference
+          throw new Error(`Missing spent output reference for input ${input.inputIndex}`)
+        }
+        return {
+          txid: input.spentTxHash,
+          vout: input.spentVout,
+          scriptSig: '', // Will be replaced during sighash calculation
+          sequence: input.spendingSequence || 0xffffffff
+        }
+      }),
+      vout: outputs.map(output => ({
+        // Use Number for value - Bitcoin values in satoshis fit in safe integer range
+        // for most transactions (max 21M BTC * 100M sats = 2.1e15 < Number.MAX_SAFE_INTEGER)
+        value: Number(output.value) || 0,
+        scriptPubKey: output.scriptPubKeyHex || ''
+      })),
+      locktime: lockTime
+    }
+
+    // Calculate the sighash using the existing calculator
+    const sighash = await calculateBitcoinSighash(
+      rawTx,
+      sig.inputIndex,
+      scriptPubKey,
+      sig.sighashType || SIGHASH_ALL
+    )
+
+    // Return without 0x prefix for consistency
+    return sighash.startsWith('0x') ? sighash.slice(2) : sighash
+  }
+
+  /**
+   * Derive scriptPubKey from a spending scriptSig (for P2PKH)
+   * For P2PKH spending: scriptSig = <sig> <pubkey>
+   * The corresponding scriptPubKey is: OP_DUP OP_HASH160 <pubkeyhash> OP_EQUALVERIFY OP_CHECKSIG
+   * 
+   * Note: This is a last resort fallback. Ideally, the scriptPubKey should be
+   * available from the outputs table via the spent output reference.
+   */
+  private async deriveScriptPubKeyFromScriptSig(scriptSig: string): Promise<string | null> {
+    if (!scriptSig || scriptSig.length < 66) return null
+
+    try {
+      const hex = scriptSig.startsWith('0x') ? scriptSig.slice(2) : scriptSig
+      
+      // Parse the scriptSig to find the public key
+      // For P2PKH: first push is signature, second push is pubkey
+      let pos = 0
+      
+      // Skip signature (first push)
+      const sigPushLen = parseInt(hex.substring(pos, pos + 2), 16)
+      pos += 2
+      if (sigPushLen > 0 && sigPushLen < 0x4c) {
+        pos += sigPushLen * 2
+      } else {
+        return null // Invalid push opcode
+      }
+      
+      // Get public key (second push)
+      if (pos >= hex.length) return null
+      
+      const pubKeyPushLen = parseInt(hex.substring(pos, pos + 2), 16)
+      pos += 2
+      
+      if (pubKeyPushLen !== 0x21 && pubKeyPushLen !== 0x41) {
+        return null // Not a valid pubkey length (33 or 65 bytes)
+      }
+      
+      // 33 bytes (compressed) or 65 bytes (uncompressed) public key
+      const pubKeyHex = hex.substring(pos, pos + pubKeyPushLen * 2)
+      if (pubKeyHex.length !== pubKeyPushLen * 2) return null
+      
+      // Compute pubkeyhash = RIPEMD160(SHA256(pubkey))
+      const pubKeyBytes = this.hexToBytes(pubKeyHex)
+      
+      // SHA256 first
+      const sha256Buffer = await crypto.subtle.digest('SHA-256', pubKeyBytes)
+      const sha256Hash = new Uint8Array(sha256Buffer)
+      
+      // RIPEMD160 - since Web Crypto doesn't support RIPEMD160,
+      // we'll use a simple implementation or return null
+      // For now, we document this limitation and return null
+      // A full implementation would require a RIPEMD160 library
+      console.warn('[BlockchainDB] RIPEMD160 not available in Web Crypto, cannot derive scriptPubKey from scriptSig')
+      return null
+      
+    } catch (error) {
+      console.warn('[BlockchainDB] Failed to parse scriptSig:', error)
+      return null
+    }
+  }
+
+  /**
+   * Convert hex string to Uint8Array
+   */
+  private hexToBytes(hex: string): Uint8Array {
+    const cleaned = hex.startsWith('0x') ? hex.slice(2) : hex
+    const bytes = new Uint8Array(cleaned.length / 2)
+    for (let i = 0; i < cleaned.length; i += 2) {
+      bytes[i / 2] = parseInt(cleaned.substring(i, i + 2), 16)
+    }
+    return bytes
+  }
+
+  /**
+   * Get all inputs for a transaction
+   */
+  private async getInputsForTransaction(txHash: string): Promise<StoredInput[]> {
+    return new Promise((resolve, reject) => {
+      const transaction = this.db!.transaction([STORE_NAMES.inputs], 'readonly')
+      const store = transaction.objectStore(STORE_NAMES.inputs)
+      const index = store.index('transactionHash')
+      const inputs: StoredInput[] = []
+
+      const request = index.openCursor(IDBKeyRange.only(txHash))
+      request.onerror = () => reject(request.error)
+      request.onsuccess = (event) => {
+        const cursor = (event.target as IDBRequest<IDBCursorWithValue>).result
+        if (cursor) {
+          inputs.push(cursor.value)
+          cursor.continue()
+        } else {
+          resolve(inputs.sort((a, b) => a.inputIndex - b.inputIndex))
+        }
+      }
+    })
+  }
+
+  /**
+   * Get all outputs for a transaction
+   */
+  private async getOutputsForTransaction(txHash: string): Promise<StoredOutput[]> {
+    return new Promise((resolve, reject) => {
+      const transaction = this.db!.transaction([STORE_NAMES.outputs], 'readonly')
+      const store = transaction.objectStore(STORE_NAMES.outputs)
+      const index = store.index('transactionHash')
+      const outputs: StoredOutput[] = []
+
+      const request = index.openCursor(IDBKeyRange.only(txHash))
+      request.onerror = () => reject(request.error)
+      request.onsuccess = (event) => {
+        const cursor = (event.target as IDBRequest<IDBCursorWithValue>).result
+        if (cursor) {
+          outputs.push(cursor.value)
+          cursor.continue()
+        } else {
+          resolve(outputs.sort((a, b) => a.outputIndex - b.outputIndex))
+        }
+      }
+    })
+  }
+
+  /**
+   * Get transaction metadata
+   */
+  private async getTransactionData(txHash: string): Promise<StoredTransaction | null> {
+    return new Promise((resolve, reject) => {
+      const transaction = this.db!.transaction([STORE_NAMES.transactions], 'readonly')
+      const store = transaction.objectStore(STORE_NAMES.transactions)
+
+      const request = store.get(txHash)
+      request.onerror = () => reject(request.error)
+      request.onsuccess = () => resolve(request.result || null)
+    })
+  }
+
+  /**
+   * Get a specific output by transaction hash and index
+   */
+  private async getOutput(txHash: string, index: number): Promise<StoredOutput | null> {
+    return new Promise((resolve, reject) => {
+      const transaction = this.db!.transaction([STORE_NAMES.outputs], 'readonly')
+      const store = transaction.objectStore(STORE_NAMES.outputs)
+
+      const request = store.get(`${txHash}-${index}`)
+      request.onerror = () => reject(request.error)
+      request.onsuccess = () => resolve(request.result || null)
+    })
+  }
+
+  /**
+   * Update a signature's Z value
+   */
+  private async updateSignatureZ(sigId: string, z: string): Promise<void> {
+    return new Promise((resolve, reject) => {
+      const transaction = this.db!.transaction([STORE_NAMES.signatures], 'readwrite')
+      const store = transaction.objectStore(STORE_NAMES.signatures)
+
+      const getRequest = store.get(sigId)
+      getRequest.onerror = () => reject(getRequest.error)
+      getRequest.onsuccess = () => {
+        const sig = getRequest.result as StoredSignature
+        if (sig) {
+          sig.z = z
+          const putRequest = store.put(sig)
+          putRequest.onerror = () => reject(putRequest.error)
+          putRequest.onsuccess = () => resolve()
+        } else {
+          resolve()
+        }
+      }
+    })
   }
 
   /**
