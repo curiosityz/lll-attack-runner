@@ -32,3 +32,8 @@ pids
 .devcontainer/
 
 .spark-workbench-id
+
+# Modal
+.modal
+__pycache__
+*.pyc
