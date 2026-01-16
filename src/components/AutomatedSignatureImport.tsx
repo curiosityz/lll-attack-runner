@@ -72,8 +72,16 @@ export function AutomatedSignatureImport({ onImportComplete }: AutoImportProps) 
         // Decompress if .gz
         if (file.name.endsWith('.gz')) {
           setStatusMessage(`Decompressing ${file.name}...`)
-          const decompressed = pako.ungzip(new Uint8Array(arrayBuffer), { to: 'string' })
-          content = decompressed
+          try {
+            const decompressed = pako.ungzip(new Uint8Array(arrayBuffer), { to: 'string' })
+            content = decompressed
+          } catch (error) {
+            const message = error instanceof Error ? error.message : 'Unknown error'
+            toast.error(`Failed to decompress ${file.name}`, {
+              description: `Invalid gzip file: ${message}`
+            })
+            continue
+          }
         } else {
           content = new TextDecoder().decode(arrayBuffer)
         }

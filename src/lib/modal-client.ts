@@ -5,6 +5,9 @@
  * to prevent browser freezing on large matrices.
  */
 
+// Test matrix constants
+const TEST_MATRIX_2X2 = [[2, 0], [0, 2]]
+
 export interface ModalConfig {
   endpoint: string
   apiKey?: string
@@ -157,10 +160,10 @@ export class ModalComputeClient {
     const startTime = Date.now()
     
     try {
-      // Test with a small 2x2 matrix
+      // Test with a small 2x2 identity-like matrix
       const testRequest: LLLRequest = {
         algorithm: 'lll',
-        basis: [[2, 0], [0, 2]],
+        basis: TEST_MATRIX_2X2,
         delta: 0.99
       }
 

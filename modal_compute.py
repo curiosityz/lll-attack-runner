@@ -288,13 +288,23 @@ def compute_lattice_reduction(request: Dict[str, Any]) -> Dict[str, Any]:
         basis = request.get("basis", [])
         delta = request.get("delta", 0.99)
         
+        # Validate basis
         if not basis:
             return {"success": False, "error": "No basis provided"}
+        
+        if not isinstance(basis, list) or not all(isinstance(row, list) for row in basis):
+            return {"success": False, "error": "Basis must be a 2D array"}
+        
+        # Validate delta parameter
+        if not (0.25 < delta < 1.0):
+            return {"success": False, "error": f"Delta must be between 0.25 and 1.0, got {delta}"}
         
         if algorithm == "lll":
             result = run_lll.remote(basis, delta)
         elif algorithm == "bkz":
             block_size = request.get("blockSize", 20)
+            if not (2 <= block_size <= 100):
+                return {"success": False, "error": f"Block size must be between 2 and 100, got {block_size}"}
             result = run_bkz.remote(basis, block_size, delta)
         else:
             return {"success": False, "error": f"Unknown algorithm: {algorithm}"}

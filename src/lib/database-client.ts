@@ -13,10 +13,18 @@
  * Alternative databases supported:
  * - ClickHouse (via HTTP interface)
  * - InfluxDB (via HTTP API)
+ * - Cloudflare D1 (serverless SQLite)
  */
 
 import { ExtractedSignature } from './blockchair-parser'
 import { ParsedSignature } from './dataParser'
+
+// ============================================================================
+// Constants
+// ============================================================================
+
+// Cloudflare D1 batch size limit (may vary by plan)
+const D1_BATCH_SIZE = 100
 
 // ============================================================================
 // Types and Interfaces
@@ -626,9 +634,8 @@ export class DatabaseClient {
           }))
 
           // D1 has a limit on batch size, so we chunk if needed
-          const chunkSize = 100
-          for (let i = 0; i < d1Statements.length; i += chunkSize) {
-            const chunk = d1Statements.slice(i, i + chunkSize)
+          for (let i = 0; i < d1Statements.length; i += D1_BATCH_SIZE) {
+            const chunk = d1Statements.slice(i, i + D1_BATCH_SIZE)
             const d1Response = await fetch(`${this.getBaseUrl()}/query`, {
               method: 'POST',
               headers: this.getAuthHeaders(),
