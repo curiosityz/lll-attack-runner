@@ -365,7 +365,7 @@ export class DatabaseClient {
       if (vuln.severity === 'high' && severity !== 'critical') {
         severity = 'high'
       }
-      if (vuln.severity === 'medium' && severity === 'none') {
+      if (vuln.severity === 'medium' && severity !== 'critical' && severity !== 'high') {
         severity = 'medium'
       }
       if (vuln.severity === 'low' && severity === 'none') {
@@ -557,9 +557,24 @@ export class DatabaseClient {
   }
 
   /**
+   * Escape special characters for InfluxDB Line Protocol
+   * Line protocol requires escaping of: spaces, commas, equals signs, and backslashes
+   */
+  private escapeILPTag(value: string): string {
+    return value
+      .replace(/\\/g, '\\\\')  // Escape backslashes first
+      .replace(/,/g, '\\,')     // Escape commas
+      .replace(/=/g, '\\=')     // Escape equals signs
+      .replace(/ /g, '\\ ')     // Escape spaces
+  }
+
+  /**
    * Convert record to InfluxDB Line Protocol (used by QuestDB too)
    */
   private toILP(record: SignatureRecord): string {
+    // Constant for timestamp conversion (milliseconds to nanoseconds)
+    const MS_TO_NANOSECONDS = 1000000
+
     const measurement = 'crypto_signatures'
     const tags = [
       `signature_type=${record.signature_type}`,
@@ -568,7 +583,7 @@ export class DatabaseClient {
     ]
     
     if (record.address) {
-      tags.push(`address=${record.address.replace(/[, ]/g, '\\ ')}`)
+      tags.push(`address=${this.escapeILPTag(record.address)}`)
     }
 
     const fields = [
@@ -591,7 +606,7 @@ export class DatabaseClient {
     }
 
     // Timestamp in nanoseconds
-    const timestamp = record.timestamp * 1000000
+    const timestamp = record.timestamp * MS_TO_NANOSECONDS
 
     return `${measurement},${tags.join(',')} ${fields.join(',')} ${timestamp}`
   }
@@ -607,6 +622,14 @@ export class DatabaseClient {
    * Convert record to ClickHouse row format
    */
   private toClickHouseRow(record: SignatureRecord): Record<string, unknown> {
+    // Safely parse value_satoshis, defaulting to 0n if invalid
+    let valueSatoshis: bigint
+    try {
+      valueSatoshis = record.value_satoshis ? BigInt(record.value_satoshis) : 0n
+    } catch {
+      valueSatoshis = 0n
+    }
+
     return {
       r_value: record.r_value,
       s_value: record.s_value,
@@ -617,7 +640,7 @@ export class DatabaseClient {
       input_index: record.input_index,
       block_id: record.block_id,
       timestamp: new Date(record.timestamp).toISOString(),
-      value_satoshis: BigInt(record.value_satoshis),
+      value_satoshis: valueSatoshis,
       sighash_type: record.sighash_type,
       signature_type: record.signature_type,
       is_nonce_reuse: record.is_nonce_reuse,
