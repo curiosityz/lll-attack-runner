@@ -104,6 +104,16 @@ export function getDefaultDateRange(): DateRange {
 }
 
 // ============================================================================
+// Constants
+// ============================================================================
+
+// Retry configuration
+const MAX_RETRIES = 3
+const INITIAL_BACKOFF_MS = 1000
+const BACKOFF_MULTIPLIER = 2
+const MAX_BACKOFF_MS = 10000
+
+// ============================================================================
 // File Download and Decompression
 // ============================================================================
 
@@ -122,6 +132,13 @@ class RetryableError extends Error {
     super(message)
     this.name = 'RetryableError'
   }
+}
+
+/**
+ * Calculate exponential backoff delay
+ */
+function calculateBackoffMs(attempt: number): number {
+  return Math.min(INITIAL_BACKOFF_MS * Math.pow(BACKOFF_MULTIPLIER, attempt), MAX_BACKOFF_MS)
 }
 
 /**
@@ -206,7 +223,7 @@ function sleep(ms: number): Promise<void> {
 async function downloadWithFallback(
   primaryUrl: string,
   onProgress?: (downloaded: number, total: number) => void,
-  maxRetries: number = 3
+  maxRetries: number = MAX_RETRIES
 ): Promise<string> {
   let lastError: Error | null = null
   
@@ -223,15 +240,15 @@ async function downloadWithFallback(
       
       // If it's a retryable error and we have retries left, wait and retry
       if (error instanceof RetryableError && attempt < maxRetries) {
-        const backoffMs = Math.min(1000 * Math.pow(2, attempt), 10000) // Max 10s
+        const backoffMs = calculateBackoffMs(attempt)
         console.log(`[Importer] Retrying ${primaryUrl} after ${backoffMs}ms (attempt ${attempt + 1}/${maxRetries})`)
         await sleep(backoffMs)
         continue
       }
       
-      // For network errors (fetch failures), retry with backoff
-      if ((error instanceof TypeError || error.message.includes('fetch')) && attempt < maxRetries) {
-        const backoffMs = Math.min(1000 * Math.pow(2, attempt), 10000)
+      // For network errors (TypeError from fetch), retry with backoff
+      if (error instanceof TypeError && attempt < maxRetries) {
+        const backoffMs = calculateBackoffMs(attempt)
         console.log(`[Importer] Network error, retrying ${primaryUrl} after ${backoffMs}ms (attempt ${attempt + 1}/${maxRetries})`)
         await sleep(backoffMs)
         continue
@@ -303,9 +320,6 @@ async function importFile(
   } catch (error) {
     // If file doesn't exist (404), this is expected - just skip silently
     if (error instanceof FileNotFoundError) {
-      // Don't report as error, just skip
-      // Optionally report as skipped for debugging
-      // console.log(`[Importer] Skipping ${dateDisplay} - file not found`)
       return { rowsImported: 0, bytesDownloaded: 0, skipped: true }
     }
     
