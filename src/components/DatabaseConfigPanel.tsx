@@ -63,6 +63,11 @@ export function DatabaseConfigPanel({ onStreamingEnabledChange, className }: Dat
   const [bucket, setBucket] = useState('crypto')
   const [token, setToken] = useState('')
   
+  // Cloudflare D1 specific
+  const [accountId, setAccountId] = useState('')
+  const [databaseId, setDatabaseId] = useState('')
+  const [apiToken, setApiToken] = useState('')
+  
   // Connection state
   const [isConnecting, setIsConnecting] = useState(false)
   const [connectionStatus, setConnectionStatus] = useState<'disconnected' | 'connecting' | 'connected' | 'error'>('disconnected')
@@ -85,6 +90,9 @@ export function DatabaseConfigPanel({ onStreamingEnabledChange, className }: Dat
       setOrg(savedConfig.org || 'default')
       setBucket(savedConfig.bucket || 'crypto')
       setToken(savedConfig.token || '')
+      setAccountId(savedConfig.accountId || '')
+      setDatabaseId(savedConfig.databaseId || '')
+      setApiToken(savedConfig.apiToken || '')
     }
   }, [savedConfig])
   
@@ -113,7 +121,10 @@ export function DatabaseConfigPanel({ onStreamingEnabledChange, className }: Dat
     timeout: 30000,
     org: dbType === 'influxdb' ? org : undefined,
     bucket: dbType === 'influxdb' ? bucket : undefined,
-    token: dbType === 'influxdb' ? token : undefined
+    token: dbType === 'influxdb' ? token : undefined,
+    accountId: dbType === 'cloudflare-d1' ? accountId : undefined,
+    databaseId: dbType === 'cloudflare-d1' ? databaseId : undefined,
+    apiToken: dbType === 'cloudflare-d1' ? apiToken : undefined
   })
   
   const handleTestConnection = async () => {
@@ -270,24 +281,33 @@ export function DatabaseConfigPanel({ onStreamingEnabledChange, className }: Dat
                   InfluxDB (Time-series)
                 </div>
               </SelectItem>
+              <SelectItem value="cloudflare-d1">
+                <div className="flex items-center gap-2">
+                  <CloudArrowUp size={16} className="text-blue-500" />
+                  Cloudflare D1 (Serverless)
+                </div>
+              </SelectItem>
             </SelectContent>
           </Select>
         </div>
         
-        <div>
-          <Label htmlFor="db-host" className="text-sm font-medium mb-2 block">
-            Host
-          </Label>
-          <Input
-            id="db-host"
-            value={host}
-            onChange={(e) => setHost(e.target.value)}
-            placeholder="localhost"
-          />
-        </div>
+        {dbType !== 'cloudflare-d1' && (
+          <div>
+            <Label htmlFor="db-host" className="text-sm font-medium mb-2 block">
+              Host
+            </Label>
+            <Input
+              id="db-host"
+              value={host}
+              onChange={(e) => setHost(e.target.value)}
+              placeholder="localhost"
+            />
+          </div>
+        )}
       </div>
       
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+      {dbType !== 'cloudflare-d1' && (
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
         <div>
           <Label htmlFor="db-port" className="text-sm font-medium mb-2 block">
             Port
@@ -326,34 +346,90 @@ export function DatabaseConfigPanel({ onStreamingEnabledChange, className }: Dat
           </div>
         </div>
       </div>
+      )}
       
       {/* Authentication */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-        <div>
-          <Label htmlFor="db-username" className="text-sm font-medium mb-2 block">
-            Username (optional)
-          </Label>
-          <Input
-            id="db-username"
-            value={username}
-            onChange={(e) => setUsername(e.target.value)}
-            placeholder="Username"
-          />
+      {dbType !== 'cloudflare-d1' && (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+          <div>
+            <Label htmlFor="db-username" className="text-sm font-medium mb-2 block">
+              Username (optional)
+            </Label>
+            <Input
+              id="db-username"
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+              placeholder="Username"
+            />
+          </div>
+          
+          <div>
+            <Label htmlFor="db-password" className="text-sm font-medium mb-2 block">
+              Password (optional)
+            </Label>
+            <Input
+              id="db-password"
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder="Password"
+            />
+          </div>
         </div>
-        
-        <div>
-          <Label htmlFor="db-password" className="text-sm font-medium mb-2 block">
-            Password (optional)
-          </Label>
-          <Input
-            id="db-password"
-            type="password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            placeholder="Password"
-          />
+      )}
+      
+      {/* Cloudflare D1-specific fields */}
+      {dbType === 'cloudflare-d1' && (
+        <div className="grid grid-cols-1 gap-4 mb-4">
+          <div>
+            <Label htmlFor="cf-account-id" className="text-sm font-medium mb-2 block">
+              Cloudflare Account ID <span className="text-destructive">*</span>
+            </Label>
+            <Input
+              id="cf-account-id"
+              value={accountId}
+              onChange={(e) => setAccountId(e.target.value)}
+              placeholder="a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6"
+            />
+          </div>
+          
+          <div>
+            <Label htmlFor="cf-database-id" className="text-sm font-medium mb-2 block">
+              Database ID <span className="text-destructive">*</span>
+            </Label>
+            <Input
+              id="cf-database-id"
+              value={databaseId}
+              onChange={(e) => setDatabaseId(e.target.value)}
+              placeholder="1a2b3c4d-5e6f-7g8h-9i0j-1k2l3m4n5o6p"
+            />
+          </div>
+          
+          <div>
+            <Label htmlFor="cf-api-token" className="text-sm font-medium mb-2 block">
+              API Token <span className="text-destructive">*</span>
+            </Label>
+            <Input
+              id="cf-api-token"
+              type="password"
+              value={apiToken}
+              onChange={(e) => setApiToken(e.target.value)}
+              placeholder="Your Cloudflare API token with D1 permissions"
+            />
+          </div>
+          
+          <Alert className="border-blue-500/50 bg-blue-500/10">
+            <AlertDescription className="text-sm">
+              <strong>Cloudflare D1:</strong> Serverless SQLite database. Get your credentials from the Cloudflare dashboard:
+              <ul className="list-disc list-inside mt-2 space-y-1">
+                <li>Account ID: Found in dashboard URL or Account Settings</li>
+                <li>Database ID: From D1 database details page</li>
+                <li>API Token: Create with D1 Read/Write permissions</li>
+              </ul>
+            </AlertDescription>
+          </Alert>
         </div>
-      </div>
+      )}
       
       {/* InfluxDB-specific fields */}
       {dbType === 'influxdb' && (
