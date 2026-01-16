@@ -1,0 +1,11 @@
+# Modal Compute Requirements
+# 
+# Install Modal CLI:
+#   pip install modal
+#
+# Deploy:
+#   modal deploy modal_compute.py
+
+modal>=0.63.0
+numpy>=1.24.0
+fpylll>=0.5.9
