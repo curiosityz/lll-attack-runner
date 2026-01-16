@@ -100,8 +100,13 @@ export class DuckDBClient {
       await this.db.instantiate(bundle.mainModule, bundle.pthreadWorker)
 
       // Open database
+      // Note: DuckDB WASM currently uses :memory: for browser environments
+      // IndexedDB persistence is handled separately via OPFS or manual export
+      const dbPath = this.config.persistToIndexedDB 
+        ? `idb://${this.config.databaseName || 'blockchain_data'}.db`
+        : ':memory:'
       await this.db.open({
-        path: this.config.persistToIndexedDB ? ':memory:' : ':memory:',
+        path: dbPath,
         accessMode: duckdb.DuckDBAccessMode.READ_WRITE
       })
 
@@ -404,14 +409,24 @@ export class DuckDBClient {
     }
 
     // Mark these signatures as vulnerable
+    // Note: R values are hex strings from our controlled extraction, not user input
+    // They are validated during extraction to contain only hex characters
     if (reused.length > 0) {
-      const rValues = reused.map(r => `'${r.rValue}'`).join(',')
-      await this.conn.query(`
-        UPDATE extracted_signatures
-        SET is_nonce_reuse = TRUE,
-            vulnerability_severity = 'critical'
-        WHERE r IN (${rValues})
-      `)
+      // Sanitize R values - ensure they only contain valid hex characters
+      const sanitizedRValues = reused
+        .map(r => r.rValue)
+        .filter(rv => /^[a-fA-F0-9]+$/.test(rv))
+        .map(rv => `'${rv}'`)
+        .join(',')
+      
+      if (sanitizedRValues.length > 0) {
+        await this.conn.query(`
+          UPDATE extracted_signatures
+          SET is_nonce_reuse = TRUE,
+              vulnerability_severity = 'critical'
+          WHERE r IN (${sanitizedRValues})
+        `)
+      }
     }
 
     return reused
@@ -423,6 +438,9 @@ export class DuckDBClient {
   async detectBiasedNonces(minLeadingZeros: number = 10): Promise<number> {
     if (!this.conn) throw new Error('Database not connected')
 
+    // Validate and sanitize the minLeadingZeros parameter
+    const sanitizedMinZeros = Math.max(0, Math.min(256, Math.floor(Number(minLeadingZeros) || 10)))
+
     // Update biased nonce flags
     const result = await this.conn.query(`
       UPDATE extracted_signatures
@@ -432,7 +450,7 @@ export class DuckDBClient {
             WHEN r_leading_zeros > 15 THEN 'high'
             ELSE 'medium'
           END
-      WHERE r_leading_zeros >= ${minLeadingZeros}
+      WHERE r_leading_zeros >= ${sanitizedMinZeros}
     `)
 
     return result.numRows
@@ -500,12 +518,17 @@ export class DuckDBClient {
 
     const { limit = 100, offset = 0, onlyVulnerable = false, minLeadingZeros } = options
 
+    // Sanitize numeric parameters to prevent injection
+    const sanitizedLimit = Math.max(1, Math.min(10000, Math.floor(Number(limit) || 100)))
+    const sanitizedOffset = Math.max(0, Math.floor(Number(offset) || 0))
+
     let whereClause = 'WHERE 1=1'
     if (onlyVulnerable) {
       whereClause += ' AND (is_nonce_reuse = TRUE OR is_biased_nonce = TRUE OR is_small_r = TRUE)'
     }
     if (minLeadingZeros !== undefined) {
-      whereClause += ` AND r_leading_zeros >= ${minLeadingZeros}`
+      const sanitizedMinZeros = Math.max(0, Math.min(256, Math.floor(Number(minLeadingZeros) || 0)))
+      whereClause += ` AND r_leading_zeros >= ${sanitizedMinZeros}`
     }
 
     const result = await this.conn.query(`
@@ -521,8 +544,8 @@ export class DuckDBClient {
       FROM extracted_signatures
       ${whereClause}
       ORDER BY block_id DESC
-      LIMIT ${limit}
-      OFFSET ${offset}
+      LIMIT ${sanitizedLimit}
+      OFFSET ${sanitizedOffset}
     `)
 
     return result.toArray().map(row => ({

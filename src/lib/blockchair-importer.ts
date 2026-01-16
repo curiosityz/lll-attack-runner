@@ -88,12 +88,18 @@ function generateDateRange(start: Date, end: Date): Date[] {
 }
 
 /**
- * Get the default date range (2009-01-03 to today)
+ * Get the default date range (2009-01-03 to today or specified end date)
+ * Note: The end date defaults to the current date to avoid requiring code updates
  */
 export function getDefaultDateRange(): DateRange {
+  // Use current date as default end, but cap at a reasonable future date
+  const today = new Date()
+  const maxEndDate = new Date('2030-12-31')
+  const endDate = today < maxEndDate ? today : maxEndDate
+  
   return {
     startDate: BITCOIN_START_DATE,
-    endDate: new Date('2026-01-15') // As specified in the issue
+    endDate: endDate
   }
 }
 
@@ -393,9 +399,10 @@ export function estimateFileCount(
   dataTypes: DataType[],
   dateRange: DateRange
 ): number {
-  const days = Math.ceil(
-    (dateRange.endDate.getTime() - dateRange.startDate.getTime()) / (1000 * 60 * 60 * 24)
-  ) + 1
+  const msPerDay = 1000 * 60 * 60 * 24
+  const days = Math.max(1, Math.ceil(
+    (dateRange.endDate.getTime() - dateRange.startDate.getTime()) / msPerDay
+  ) + 1)
   return days * dataTypes.length
 }
 
