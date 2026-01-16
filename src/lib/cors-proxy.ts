@@ -65,7 +65,7 @@ class CORSProxyManager {
            timeSinceFailure < this.proxyBlacklistDuration
   }
 
-  private getAvailableProxies(): CORSProxyConfig[] {
+  getAvailableProxies(): CORSProxyConfig[] {
     return CORS_PROXIES.filter(proxy => {
       const state = this.proxyStates.get(proxy.name)
       return state && !this.isProxyBlacklisted(state)
@@ -206,9 +206,17 @@ export async function fetchWithCORSProxy(
     if (lastError.message.includes('CORS') || lastError.name === 'TypeError' || lastError.name === 'AbortError') {
       console.log(`[CORS Proxy] Direct fetch failed, trying proxies for ${targetUrl}`)
       
-      // Try each available proxy
-      for (let attempt = 0; attempt <= maxRetries; attempt++) {
-        const proxy = corsProxyManager.getCurrentProxy()
+      // Get all available proxies upfront (sorted by priority/success)
+      let availableProxies = corsProxyManager.getAvailableProxies()
+      
+      if (availableProxies.length === 0) {
+        console.warn('[CORS Proxy] No available proxies, resetting all')
+        corsProxyManager.reset()
+        availableProxies = CORS_PROXIES.slice().sort((a, b) => a.priority - b.priority)
+      }
+      
+      // Try each proxy once
+      for (const proxy of availableProxies.slice(0, maxRetries + 1)) {
         const proxyUrl = proxy.url(targetUrl)
         
         try {
