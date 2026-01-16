@@ -8,6 +8,7 @@
  * - Parallel download with progress tracking
  * - IndexedDB-based local storage for data persistence
  * - R, S extraction and Z calculation
+ * - URL list import from dl-urls.txt
  */
 
 import { useState, useEffect, useCallback } from 'react'
@@ -49,6 +50,9 @@ import {
 } from '@/lib/blockchair-importer'
 import { ImportProgress, ImportStats } from '@/lib/duckdb-client'
 import { initializeDuckDB, getDuckDBClient } from '@/lib/duckdb-client'
+
+// Valid data types for import
+const VALID_DATA_TYPES: DataType[] = ['outputs', 'inputs', 'transactions']
 
 interface BlockchairDataImportProps {
   className?: string
@@ -116,15 +120,14 @@ export function BlockchairDataImport({ className, onImportComplete }: Blockchair
             
             const parsed = parseUrlListFile(content)
             // Filter out 'blocks' and 'unknown' types and count only valid data types
-            const byType = parsed
-              .filter(item => ['outputs', 'inputs', 'transactions'].includes(item.dataType))
-              .reduce((acc, item) => {
-                acc[item.dataType] = (acc[item.dataType] || 0) + 1
-                return acc
-              }, {} as Record<string, number>)
+            const validUrls = parsed.filter(item => VALID_DATA_TYPES.includes(item.dataType as DataType))
+            const byType = validUrls.reduce((acc, item) => {
+              acc[item.dataType] = (acc[item.dataType] || 0) + 1
+              return acc
+            }, {} as Record<string, number>)
             
             setUrlListInfo({ 
-              totalUrls: parsed.filter(item => ['outputs', 'inputs', 'transactions'].includes(item.dataType)).length, 
+              totalUrls: validUrls.length, 
               byType 
             })
           }
