@@ -6,7 +6,7 @@
  * - Date range selection (2009-2026)
  * - Data type selection (outputs, inputs, transactions)
  * - Parallel download with progress tracking
- * - DuckDB integration for data storage
+ * - IndexedDB-based local storage for data persistence
  * - R, S extraction and Z calculation
  */
 
@@ -84,7 +84,7 @@ export function BlockchairDataImport({ className, onImportComplete }: Blockchair
   const [fileProgress, setFileProgress] = useState<Map<string, FileProgress>>(new Map())
   const [recentProgress, setRecentProgress] = useState<FileProgress[]>([])
   
-  // DuckDB state
+  // Database state
   const [isDbReady, setIsDbReady] = useState(false)
   const [dbError, setDbError] = useState<string | null>(null)
   const [tableCounts, setTableCounts] = useState<{
@@ -94,7 +94,7 @@ export function BlockchairDataImport({ className, onImportComplete }: Blockchair
     signatures: number
   } | null>(null)
   
-  // Initialize DuckDB on mount
+  // Initialize IndexedDB on mount
   useEffect(() => {
     const init = async () => {
       try {
@@ -102,7 +102,7 @@ export function BlockchairDataImport({ className, onImportComplete }: Blockchair
         setIsDbReady(true)
         await updateTableCounts()
       } catch (error) {
-        setDbError(error instanceof Error ? error.message : 'Failed to initialize DuckDB')
+        setDbError(error instanceof Error ? error.message : 'Failed to initialize database')
       }
     }
     init()
@@ -200,7 +200,7 @@ export function BlockchairDataImport({ className, onImportComplete }: Blockchair
     }
     
     if (!isDbReady) {
-      toast.error('DuckDB is not ready. Please wait for initialization.')
+      toast.error('Database is not ready. Please wait for initialization.')
       return
     }
     
@@ -299,7 +299,7 @@ export function BlockchairDataImport({ className, onImportComplete }: Blockchair
           {isDbReady ? (
             <Badge variant="outline" className="border-success/50 text-success">
               <Database size={12} className="mr-1" />
-              DuckDB Ready
+              IndexedDB Ready
             </Badge>
           ) : dbError ? (
             <Badge variant="outline" className="border-destructive/50 text-destructive">
@@ -320,7 +320,7 @@ export function BlockchairDataImport({ className, onImportComplete }: Blockchair
         <Alert className="mb-4 border-destructive/50 bg-destructive/10">
           <XCircle size={16} className="text-destructive" />
           <AlertDescription>
-            DuckDB initialization failed: {dbError}
+            Database initialization failed: {dbError}
           </AlertDescription>
         </Alert>
       )}

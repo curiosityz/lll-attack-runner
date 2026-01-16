@@ -1,15 +1,25 @@
 /**
- * DuckDB WebAssembly Client for Blockchain Data Analysis
+ * Blockchain Data Client for Browser-based Storage
  * 
- * This module provides integration with DuckDB WASM for:
+ * This module provides IndexedDB-based storage for:
  * - Storing and querying Bitcoin blockchain data from Blockchair dumps
  * - Extracting ECDSA signature components (R, S) from inputs
  * - Calculating message hashes (Z) for cryptographic analysis
  * - Detecting signature vulnerabilities (nonce reuse, biased nonces, etc.)
+ * 
+ * Uses IndexedDB for persistent browser storage without external dependencies.
  */
 
-import * as duckdb from '@duckdb/duckdb-wasm'
-import { ExtractedSignature } from './blockchair-parser'
+import { 
+  ExtractedSignature, 
+  parseDERSignature, 
+  parseWitnessStack, 
+  parseLegacyScriptSig,
+  BlockchairInput,
+  parseInputsTSV,
+  parseOutputsTSV,
+  parseTransactionsTSV
+} from './blockchair-parser'
 
 // ============================================================================
 // Types and Interfaces
@@ -52,27 +62,102 @@ export interface SignatureWithZ {
   value: string
 }
 
+interface StoredSignature {
+  id: string
+  r: string
+  s: string
+  z: string
+  transactionHash: string
+  inputIndex: number
+  blockId: number
+  timestamp: number
+  value: string
+  address?: string
+  publicKey?: string
+  sighashType: number
+  signatureType: string
+  rLeadingZeros: number
+  isNonceReuse: boolean
+  isBiasedNonce: boolean
+  isSmallR: boolean
+  vulnerabilitySeverity: string
+}
+
+interface StoredInput {
+  id: string
+  blockId: number
+  transactionHash: string
+  inputIndex: number
+  time: string
+  value: string
+  recipient?: string
+  type?: string
+  scriptHex?: string
+  spendingSignatureHex?: string
+  spendingWitnessHex?: string
+}
+
+interface StoredOutput {
+  id: string
+  blockId: number
+  transactionHash: string
+  outputIndex: number
+  time: string
+  value: string
+  recipient?: string
+  type?: string
+  scriptPubKeyHex?: string
+  isSpent: boolean
+}
+
+interface StoredTransaction {
+  hash: string
+  blockId: number
+  time: string
+  size: number
+  weight: number
+  version: number
+  lockTime: number
+  isCoinbase: boolean
+  hasWitness: boolean
+  inputCount: number
+  outputCount: number
+  inputTotal: string
+  outputTotal: string
+  fee: string
+}
+
 // ============================================================================
-// DuckDB Client Class
+// IndexedDB Database Client
 // ============================================================================
 
+const DB_NAME = 'blockchain_data'
+const DB_VERSION = 1
+
+const STORE_NAMES = {
+  signatures: 'signatures',
+  inputs: 'inputs',
+  outputs: 'outputs',
+  transactions: 'transactions'
+} as const
+
 export class DuckDBClient {
-  private db: duckdb.AsyncDuckDB | null = null
-  private conn: duckdb.AsyncDuckDBConnection | null = null
+  private db: IDBDatabase | null = null
   private config: DuckDBConfig
   private isInitialized = false
   private initPromise: Promise<void> | null = null
+  private signatureIdCounter = 0
 
   constructor(config: DuckDBConfig = {}) {
     this.config = {
       persistToIndexedDB: true,
-      databaseName: 'blockchain_data',
+      databaseName: DB_NAME,
       ...config
     }
   }
 
   /**
-   * Initialize DuckDB WebAssembly
+   * Initialize IndexedDB database
    */
   async initialize(): Promise<void> {
     if (this.isInitialized) return
@@ -83,377 +168,365 @@ export class DuckDBClient {
   }
 
   private async _doInitialize(): Promise<void> {
-    try {
-      // Select the appropriate bundle based on browser capabilities
-      const JSDELIVR_BUNDLES = duckdb.getJsDelivrBundles()
-      const bundle = await duckdb.selectBundle(JSDELIVR_BUNDLES)
+    return new Promise((resolve, reject) => {
+      const request = indexedDB.open(this.config.databaseName || DB_NAME, DB_VERSION)
 
-      // Create worker
-      const workerUrl = URL.createObjectURL(
-        new Blob([`importScripts("${bundle.mainWorker}");`], { type: 'text/javascript' })
-      )
-      const worker = new Worker(workerUrl)
-      const logger = new duckdb.ConsoleLogger()
+      request.onerror = () => {
+        console.error('[BlockchainDB] Failed to open database:', request.error)
+        reject(request.error)
+      }
 
-      // Instantiate DuckDB
-      this.db = new duckdb.AsyncDuckDB(logger, worker)
-      await this.db.instantiate(bundle.mainModule, bundle.pthreadWorker)
+      request.onsuccess = () => {
+        this.db = request.result
+        this.isInitialized = true
+        console.log('[BlockchainDB] Initialized successfully')
+        resolve()
+      }
 
-      // Open database
-      // Note: DuckDB WASM currently uses :memory: for browser environments
-      // IndexedDB persistence is handled separately via OPFS or manual export
-      const dbPath = this.config.persistToIndexedDB 
-        ? `idb://${this.config.databaseName || 'blockchain_data'}.db`
-        : ':memory:'
-      await this.db.open({
-        path: dbPath,
-        accessMode: duckdb.DuckDBAccessMode.READ_WRITE
-      })
+      request.onupgradeneeded = (event) => {
+        const db = (event.target as IDBOpenDBRequest).result
 
-      // Create connection
-      this.conn = await this.db.connect()
+        // Signatures store
+        if (!db.objectStoreNames.contains(STORE_NAMES.signatures)) {
+          const sigStore = db.createObjectStore(STORE_NAMES.signatures, { keyPath: 'id' })
+          sigStore.createIndex('r', 'r', { unique: false })
+          sigStore.createIndex('transactionHash', 'transactionHash', { unique: false })
+          sigStore.createIndex('blockId', 'blockId', { unique: false })
+          sigStore.createIndex('isNonceReuse', 'isNonceReuse', { unique: false })
+          sigStore.createIndex('isBiasedNonce', 'isBiasedNonce', { unique: false })
+          sigStore.createIndex('rLeadingZeros', 'rLeadingZeros', { unique: false })
+        }
 
-      // Initialize schema
-      await this.initializeSchema()
+        // Inputs store
+        if (!db.objectStoreNames.contains(STORE_NAMES.inputs)) {
+          const inputStore = db.createObjectStore(STORE_NAMES.inputs, { keyPath: 'id' })
+          inputStore.createIndex('transactionHash', 'transactionHash', { unique: false })
+          inputStore.createIndex('blockId', 'blockId', { unique: false })
+        }
 
-      this.isInitialized = true
-      console.log('[DuckDB] Initialized successfully')
-    } catch (error) {
-      console.error('[DuckDB] Initialization error:', error)
-      throw error
-    }
-  }
+        // Outputs store
+        if (!db.objectStoreNames.contains(STORE_NAMES.outputs)) {
+          const outputStore = db.createObjectStore(STORE_NAMES.outputs, { keyPath: 'id' })
+          outputStore.createIndex('transactionHash', 'transactionHash', { unique: false })
+          outputStore.createIndex('blockId', 'blockId', { unique: false })
+        }
 
-  /**
-   * Initialize the database schema for blockchain data
-   */
-  private async initializeSchema(): Promise<void> {
-    if (!this.conn) throw new Error('Database not connected')
+        // Transactions store
+        if (!db.objectStoreNames.contains(STORE_NAMES.transactions)) {
+          const txStore = db.createObjectStore(STORE_NAMES.transactions, { keyPath: 'hash' })
+          txStore.createIndex('blockId', 'blockId', { unique: false })
+        }
 
-    // Create tables for Blockchair data
-    await this.conn.query(`
-      CREATE TABLE IF NOT EXISTS bitcoin_outputs (
-        block_id INTEGER,
-        transaction_hash VARCHAR,
-        output_index INTEGER,
-        time TIMESTAMP,
-        value BIGINT,
-        value_usd DOUBLE,
-        recipient VARCHAR,
-        type VARCHAR,
-        script_hex VARCHAR,
-        is_spent BOOLEAN,
-        spending_block_id INTEGER,
-        spending_transaction_hash VARCHAR,
-        spending_index INTEGER,
-        PRIMARY KEY (transaction_hash, output_index)
-      );
-    `)
-
-    await this.conn.query(`
-      CREATE TABLE IF NOT EXISTS bitcoin_inputs (
-        block_id INTEGER,
-        transaction_hash VARCHAR,
-        input_index INTEGER,
-        time TIMESTAMP,
-        value BIGINT,
-        value_usd DOUBLE,
-        recipient VARCHAR,
-        type VARCHAR,
-        script_hex VARCHAR,
-        spending_signature_hex VARCHAR,
-        spending_witness_hex VARCHAR,
-        spending_sequence BIGINT,
-        spending_n_locktime INTEGER,
-        is_spent BOOLEAN,
-        spending_transaction_hash VARCHAR,
-        spending_block_id INTEGER,
-        spending_index INTEGER,
-        PRIMARY KEY (transaction_hash, input_index)
-      );
-    `)
-
-    await this.conn.query(`
-      CREATE TABLE IF NOT EXISTS bitcoin_transactions (
-        block_id INTEGER,
-        hash VARCHAR PRIMARY KEY,
-        time TIMESTAMP,
-        size INTEGER,
-        weight INTEGER,
-        version INTEGER,
-        lock_time INTEGER,
-        is_coinbase BOOLEAN,
-        has_witness BOOLEAN,
-        input_count INTEGER,
-        output_count INTEGER,
-        input_total BIGINT,
-        output_total BIGINT,
-        fee BIGINT,
-        fee_usd DOUBLE
-      );
-    `)
-
-    // Table for extracted signatures with R, S, Z
-    await this.conn.query(`
-      CREATE TABLE IF NOT EXISTS extracted_signatures (
-        id INTEGER PRIMARY KEY,
-        r VARCHAR NOT NULL,
-        s VARCHAR NOT NULL,
-        z VARCHAR,
-        transaction_hash VARCHAR NOT NULL,
-        input_index INTEGER NOT NULL,
-        block_id INTEGER,
-        time TIMESTAMP,
-        value BIGINT,
-        address VARCHAR,
-        public_key VARCHAR,
-        sighash_type INTEGER,
-        signature_type VARCHAR,
-        r_leading_zeros INTEGER,
-        is_nonce_reuse BOOLEAN DEFAULT FALSE,
-        is_biased_nonce BOOLEAN DEFAULT FALSE,
-        is_small_r BOOLEAN DEFAULT FALSE,
-        vulnerability_severity VARCHAR DEFAULT 'none',
-        UNIQUE (transaction_hash, input_index)
-      );
-    `)
-
-    // Create indexes for fast vulnerability queries
-    await this.conn.query(`
-      CREATE INDEX IF NOT EXISTS idx_sig_r ON extracted_signatures(r);
-    `)
-
-    await this.conn.query(`
-      CREATE INDEX IF NOT EXISTS idx_sig_block ON extracted_signatures(block_id);
-    `)
-
-    console.log('[DuckDB] Schema initialized')
-  }
-
-  /**
-   * Import data directly from a gzipped TSV URL
-   * DuckDB can read compressed files directly over HTTP
-   */
-  async importFromUrl(url: string, tableName: string): Promise<number> {
-    if (!this.conn) throw new Error('Database not connected')
-
-    try {
-      // DuckDB can read gzipped TSV directly with httpfs extension
-      await this.conn.query(`INSTALL httpfs;`)
-      await this.conn.query(`LOAD httpfs;`)
-
-      // Read directly from URL - DuckDB handles gzip decompression automatically
-      const result = await this.conn.query(`
-        INSERT INTO ${tableName}
-        SELECT * FROM read_csv_auto('${url}', 
-          delim='\t', 
-          header=true,
-          compression='gzip',
-          ignore_errors=true
-        );
-      `)
-
-      const rowCount = result.numRows
-      console.log(`[DuckDB] Imported ${rowCount} rows from ${url}`)
-      return rowCount
-    } catch (error) {
-      console.error(`[DuckDB] Import error for ${url}:`, error)
-      throw error
-    }
+        console.log('[BlockchainDB] Schema initialized')
+      }
+    })
   }
 
   /**
    * Import data from decompressed TSV content
    */
   async importFromTSVContent(content: string, tableName: string): Promise<number> {
-    if (!this.conn) throw new Error('Database not connected')
+    if (!this.db) throw new Error('Database not connected')
 
     try {
-      // Register the content as a file
-      const encoder = new TextEncoder()
-      const data = encoder.encode(content)
-      await this.db!.registerFileBuffer(`temp_${tableName}.tsv`, data)
+      let rowsImported = 0
 
-      // Insert from the registered file
-      const result = await this.conn.query(`
-        INSERT OR IGNORE INTO ${tableName}
-        SELECT * FROM read_csv_auto('temp_${tableName}.tsv',
-          delim='\t',
-          header=true,
-          ignore_errors=true
-        );
-      `)
+      if (tableName === 'bitcoin_inputs') {
+        const inputs = parseInputsTSV(content)
+        await this.storeInputs(inputs)
+        rowsImported = inputs.length
+      } else if (tableName === 'bitcoin_outputs') {
+        const outputs = parseOutputsTSV(content)
+        await this.storeOutputs(outputs)
+        rowsImported = outputs.length
+      } else if (tableName === 'bitcoin_transactions') {
+        const transactions = parseTransactionsTSV(content)
+        await this.storeTransactions(transactions)
+        rowsImported = transactions.length
+      }
 
-      // Clean up registered file
-      await this.db!.dropFile(`temp_${tableName}.tsv`)
-
-      const rowCount = result.numRows
-      console.log(`[DuckDB] Imported ${rowCount} rows into ${tableName}`)
-      return rowCount
+      console.log(`[BlockchainDB] Imported ${rowsImported} rows into ${tableName}`)
+      return rowsImported
     } catch (error) {
-      console.error(`[DuckDB] Import error:`, error)
+      console.error(`[BlockchainDB] Import error:`, error)
       throw error
     }
   }
 
-  /**
-   * Extract signatures from imported inputs data
-   * This parses DER signatures from spending_signature_hex and spending_witness_hex
-   */
-  async extractSignatures(): Promise<number> {
-    if (!this.conn) throw new Error('Database not connected')
+  private async storeInputs(inputs: BlockchairInput[]): Promise<void> {
+    if (!this.db) return
 
-    // This is a simplified version - in production, we'd use a UDF for DER parsing
-    // For now, we'll query inputs and process them in JavaScript
-    const result = await this.conn.query(`
-      SELECT 
-        block_id,
-        transaction_hash,
-        input_index,
-        time,
-        value,
-        recipient,
-        spending_signature_hex,
-        spending_witness_hex
-      FROM bitcoin_inputs
-      WHERE (spending_signature_hex IS NOT NULL AND LENGTH(spending_signature_hex) > 10)
-         OR (spending_witness_hex IS NOT NULL AND LENGTH(spending_witness_hex) > 10)
-    `)
+    return new Promise((resolve, reject) => {
+      const transaction = this.db!.transaction([STORE_NAMES.inputs], 'readwrite')
+      const store = transaction.objectStore(STORE_NAMES.inputs)
 
-    // Process in batches to avoid memory issues
-    let extractedCount = 0
-    const rows = result.toArray()
+      transaction.onerror = () => reject(transaction.error)
+      transaction.oncomplete = () => resolve()
 
-    for (const row of rows) {
-      // Parse the signature - this would call parseDERSignature
-      // For now, we mark it as needing processing
-      const txHash = row.transaction_hash
-      const inputIndex = row.input_index
-      const sigHex = row.spending_signature_hex || row.spending_witness_hex
-
-      if (sigHex && typeof sigHex === 'string' && sigHex.length > 20) {
-        // In production, we'd parse DER here
-        // This is a placeholder for the extraction logic
-        extractedCount++
+      for (const input of inputs) {
+        const stored: StoredInput = {
+          id: `${input.transactionHash}-${input.index}`,
+          blockId: input.blockId,
+          transactionHash: input.transactionHash,
+          inputIndex: input.index,
+          time: input.time,
+          value: input.value.toString(),
+          recipient: input.recipient,
+          type: input.type,
+          scriptHex: input.scriptHex,
+          spendingSignatureHex: input.spendingSignatureHex,
+          spendingWitnessHex: input.spendingWitnessHex
+        }
+        store.put(stored)
       }
-    }
+    })
+  }
 
-    return extractedCount
+  private async storeOutputs(outputs: { blockId: number; transactionHash: string; index: number; time: string; value: bigint; recipient?: string; type?: string; scriptPubKeyHex?: string; isSpent: boolean }[]): Promise<void> {
+    if (!this.db) return
+
+    return new Promise((resolve, reject) => {
+      const transaction = this.db!.transaction([STORE_NAMES.outputs], 'readwrite')
+      const store = transaction.objectStore(STORE_NAMES.outputs)
+
+      transaction.onerror = () => reject(transaction.error)
+      transaction.oncomplete = () => resolve()
+
+      for (const output of outputs) {
+        const stored: StoredOutput = {
+          id: `${output.transactionHash}-${output.index}`,
+          blockId: output.blockId,
+          transactionHash: output.transactionHash,
+          outputIndex: output.index,
+          time: output.time,
+          value: output.value.toString(),
+          recipient: output.recipient,
+          type: output.type,
+          scriptPubKeyHex: output.scriptPubKeyHex,
+          isSpent: output.isSpent
+        }
+        store.put(stored)
+      }
+    })
+  }
+
+  private async storeTransactions(transactions: { blockId: number; hash: string; time: string; size: number; weight: number; version: number; lockTime: number; isCoinbase: boolean; hasWitness: boolean; inputCount: number; outputCount: number; inputTotal: bigint; outputTotal: bigint; fee: bigint }[]): Promise<void> {
+    if (!this.db) return
+
+    return new Promise((resolve, reject) => {
+      const transaction = this.db!.transaction([STORE_NAMES.transactions], 'readwrite')
+      const store = transaction.objectStore(STORE_NAMES.transactions)
+
+      transaction.onerror = () => reject(transaction.error)
+      transaction.oncomplete = () => resolve()
+
+      for (const tx of transactions) {
+        const stored: StoredTransaction = {
+          hash: tx.hash,
+          blockId: tx.blockId,
+          time: tx.time,
+          size: tx.size,
+          weight: tx.weight,
+          version: tx.version,
+          lockTime: tx.lockTime,
+          isCoinbase: tx.isCoinbase,
+          hasWitness: tx.hasWitness,
+          inputCount: tx.inputCount,
+          outputCount: tx.outputCount,
+          inputTotal: tx.inputTotal.toString(),
+          outputTotal: tx.outputTotal.toString(),
+          fee: tx.fee.toString()
+        }
+        store.put(stored)
+      }
+    })
   }
 
   /**
-   * Calculate Z (message hash) for signatures
-   * Z is calculated from transaction data using the sighash algorithm
+   * Extract signatures from imported inputs data
+   */
+  async extractSignatures(): Promise<number> {
+    if (!this.db) throw new Error('Database not connected')
+
+    return new Promise((resolve, reject) => {
+      const transaction = this.db!.transaction([STORE_NAMES.inputs, STORE_NAMES.signatures], 'readwrite')
+      const inputStore = transaction.objectStore(STORE_NAMES.inputs)
+      const sigStore = transaction.objectStore(STORE_NAMES.signatures)
+
+      let extractedCount = 0
+      const request = inputStore.openCursor()
+
+      request.onerror = () => reject(request.error)
+
+      request.onsuccess = (event) => {
+        const cursor = (event.target as IDBRequest<IDBCursorWithValue>).result
+        if (cursor) {
+          const input = cursor.value as StoredInput
+          
+          // Try to extract signature from witness or scriptSig
+          let sigData: { r: bigint; s: bigint; sighashType: number } | null = null
+          let publicKey: string | null = null
+          let signatureType: 'legacy' | 'segwit' = 'legacy'
+
+          if (input.spendingWitnessHex && input.spendingWitnessHex.length > 10) {
+            const witnessResult = parseWitnessStack(input.spendingWitnessHex)
+            if (witnessResult.signature) {
+              sigData = witnessResult.signature
+              publicKey = witnessResult.publicKey
+              signatureType = 'segwit'
+            }
+          }
+
+          if (!sigData && input.spendingSignatureHex && input.spendingSignatureHex.length > 10) {
+            const legacyResult = parseLegacyScriptSig(input.spendingSignatureHex)
+            if (legacyResult.signature) {
+              sigData = legacyResult.signature
+              publicKey = legacyResult.publicKey
+              signatureType = 'legacy'
+            }
+          }
+
+          if (sigData) {
+            const rHex = sigData.r.toString(16).padStart(64, '0')
+            const sHex = sigData.s.toString(16).padStart(64, '0')
+            
+            // Calculate leading zeros in R
+            const rBits = sigData.r.toString(2)
+            const leadingZeros = 256 - rBits.length
+
+            // Calculate Z placeholder (transaction hash for now)
+            const zHex = input.transactionHash.startsWith('0x') 
+              ? input.transactionHash.slice(2) 
+              : input.transactionHash
+
+            const stored: StoredSignature = {
+              id: `sig-${this.signatureIdCounter++}`,
+              r: rHex,
+              s: sHex,
+              z: zHex,
+              transactionHash: input.transactionHash,
+              inputIndex: input.inputIndex,
+              blockId: input.blockId,
+              timestamp: new Date(input.time).getTime(),
+              value: input.value,
+              address: input.recipient,
+              publicKey: publicKey || undefined,
+              sighashType: sigData.sighashType,
+              signatureType,
+              rLeadingZeros: leadingZeros,
+              isNonceReuse: false,
+              isBiasedNonce: leadingZeros > 10,
+              isSmallR: false,
+              vulnerabilitySeverity: leadingZeros > 20 ? 'critical' : leadingZeros > 10 ? 'high' : 'none'
+            }
+
+            sigStore.put(stored)
+            extractedCount++
+          }
+
+          cursor.continue()
+        } else {
+          resolve(extractedCount)
+        }
+      }
+    })
+  }
+
+  /**
+   * Calculate Z (message hash) for signatures - placeholder
    */
   async calculateZ(): Promise<number> {
-    if (!this.conn) throw new Error('Database not connected')
-
-    // Query signatures that don't have Z calculated yet
-    const result = await this.conn.query(`
-      SELECT 
-        s.id,
-        s.transaction_hash,
-        s.input_index,
-        s.sighash_type,
-        t.version,
-        t.lock_time
-      FROM extracted_signatures s
-      LEFT JOIN bitcoin_transactions t ON s.transaction_hash = t.hash
-      WHERE s.z IS NULL OR s.z = ''
-    `)
-
-    let calculatedCount = 0
-    const rows = result.toArray()
-
-    // In a full implementation, we would:
-    // 1. Reconstruct the transaction pre-image
-    // 2. Apply the sighash algorithm based on sighash_type
-    // 3. Double SHA256 hash the pre-image to get Z
-    // This requires the full transaction data including all inputs/outputs
-
-    console.log(`[DuckDB] ${rows.length} signatures need Z calculation`)
-    
-    // For now, return the count of signatures needing calculation
-    calculatedCount = rows.length
-
-    return calculatedCount
+    // In a full implementation, this would calculate the actual sighash
+    // For now, we're using the transaction hash as a placeholder
+    console.log('[BlockchainDB] Z calculation uses transaction hash as placeholder')
+    return 0
   }
 
   /**
    * Detect nonce reuse (same R value with different Z)
    */
   async detectNonceReuse(): Promise<{ rValue: string; count: number; signatures: string[] }[]> {
-    if (!this.conn) throw new Error('Database not connected')
+    if (!this.db) throw new Error('Database not connected')
 
-    const result = await this.conn.query(`
-      SELECT 
-        r,
-        COUNT(*) as reuse_count,
-        ARRAY_AGG(transaction_hash) as tx_hashes
-      FROM extracted_signatures
-      GROUP BY r
-      HAVING COUNT(*) > 1
-      ORDER BY reuse_count DESC
-      LIMIT 1000
-    `)
+    return new Promise((resolve, reject) => {
+      const transaction = this.db!.transaction([STORE_NAMES.signatures], 'readwrite')
+      const store = transaction.objectStore(STORE_NAMES.signatures)
 
-    const reused: { rValue: string; count: number; signatures: string[] }[] = []
-    const rows = result.toArray()
+      const rValueMap = new Map<string, StoredSignature[]>()
+      const request = store.openCursor()
 
-    for (const row of rows) {
-      reused.push({
-        rValue: row.r,
-        count: row.reuse_count,
-        signatures: row.tx_hashes
-      })
-    }
+      request.onerror = () => reject(request.error)
 
-    // Mark these signatures as vulnerable
-    // Note: R values are hex strings from our controlled extraction, not user input
-    // They are validated during extraction to contain only hex characters
-    if (reused.length > 0) {
-      // Sanitize R values - ensure they only contain valid hex characters
-      const sanitizedRValues = reused
-        .map(r => r.rValue)
-        .filter(rv => /^[a-fA-F0-9]+$/.test(rv))
-        .map(rv => `'${rv}'`)
-        .join(',')
-      
-      if (sanitizedRValues.length > 0) {
-        await this.conn.query(`
-          UPDATE extracted_signatures
-          SET is_nonce_reuse = TRUE,
-              vulnerability_severity = 'critical'
-          WHERE r IN (${sanitizedRValues})
-        `)
+      request.onsuccess = (event) => {
+        const cursor = (event.target as IDBRequest<IDBCursorWithValue>).result
+        if (cursor) {
+          const sig = cursor.value as StoredSignature
+          if (!rValueMap.has(sig.r)) {
+            rValueMap.set(sig.r, [])
+          }
+          rValueMap.get(sig.r)!.push(sig)
+          cursor.continue()
+        } else {
+          // Process results
+          const reused: { rValue: string; count: number; signatures: string[] }[] = []
+          
+          for (const [rValue, sigs] of rValueMap.entries()) {
+            if (sigs.length > 1) {
+              reused.push({
+                rValue,
+                count: sigs.length,
+                signatures: sigs.map(s => s.transactionHash)
+              })
+
+              // Mark as nonce reuse
+              for (const sig of sigs) {
+                sig.isNonceReuse = true
+                sig.vulnerabilitySeverity = 'critical'
+                store.put(sig)
+              }
+            }
+          }
+
+          resolve(reused.sort((a, b) => b.count - a.count).slice(0, 1000))
+        }
       }
-    }
-
-    return reused
+    })
   }
 
   /**
    * Detect biased nonces (signatures with many leading zeros in R)
    */
   async detectBiasedNonces(minLeadingZeros: number = 10): Promise<number> {
-    if (!this.conn) throw new Error('Database not connected')
+    if (!this.db) throw new Error('Database not connected')
 
-    // Validate and sanitize the minLeadingZeros parameter
     const sanitizedMinZeros = Math.max(0, Math.min(256, Math.floor(Number(minLeadingZeros) || 10)))
 
-    // Update biased nonce flags
-    const result = await this.conn.query(`
-      UPDATE extracted_signatures
-      SET is_biased_nonce = TRUE,
-          vulnerability_severity = CASE 
-            WHEN r_leading_zeros > 20 THEN 'critical'
-            WHEN r_leading_zeros > 15 THEN 'high'
-            ELSE 'medium'
-          END
-      WHERE r_leading_zeros >= ${sanitizedMinZeros}
-    `)
+    return new Promise((resolve, reject) => {
+      const transaction = this.db!.transaction([STORE_NAMES.signatures], 'readwrite')
+      const store = transaction.objectStore(STORE_NAMES.signatures)
 
-    return result.numRows
+      let count = 0
+      const request = store.openCursor()
+
+      request.onerror = () => reject(request.error)
+
+      request.onsuccess = (event) => {
+        const cursor = (event.target as IDBRequest<IDBCursorWithValue>).result
+        if (cursor) {
+          const sig = cursor.value as StoredSignature
+          if (sig.rLeadingZeros >= sanitizedMinZeros) {
+            sig.isBiasedNonce = true
+            sig.vulnerabilitySeverity = sig.rLeadingZeros > 20 ? 'critical' : 
+                                        sig.rLeadingZeros > 15 ? 'high' : 'medium'
+            store.put(sig)
+            count++
+          }
+          cursor.continue()
+        } else {
+          resolve(count)
+        }
+      }
+    })
   }
 
   /**
@@ -466,43 +539,37 @@ export class DuckDBClient {
     smallR: number
     bySeverity: Record<string, number>
   }> {
-    if (!this.conn) throw new Error('Database not connected')
+    if (!this.db) throw new Error('Database not connected')
 
-    const countResult = await this.conn.query(`SELECT COUNT(*) as total FROM extracted_signatures`)
-    const totalSignatures = countResult.toArray()[0]?.total || 0
+    return new Promise((resolve, reject) => {
+      const transaction = this.db!.transaction([STORE_NAMES.signatures], 'readonly')
+      const store = transaction.objectStore(STORE_NAMES.signatures)
 
-    const nonceReuseResult = await this.conn.query(`
-      SELECT COUNT(*) as count FROM extracted_signatures WHERE is_nonce_reuse = TRUE
-    `)
-    const nonceReuse = nonceReuseResult.toArray()[0]?.count || 0
+      let total = 0
+      let nonceReuse = 0
+      let biasedNonces = 0
+      let smallR = 0
+      const bySeverity: Record<string, number> = {}
 
-    const biasedResult = await this.conn.query(`
-      SELECT COUNT(*) as count FROM extracted_signatures WHERE is_biased_nonce = TRUE
-    `)
-    const biasedNonces = biasedResult.toArray()[0]?.count || 0
+      const request = store.openCursor()
 
-    const smallRResult = await this.conn.query(`
-      SELECT COUNT(*) as count FROM extracted_signatures WHERE is_small_r = TRUE
-    `)
-    const smallR = smallRResult.toArray()[0]?.count || 0
+      request.onerror = () => reject(request.error)
 
-    const severityResult = await this.conn.query(`
-      SELECT vulnerability_severity, COUNT(*) as count
-      FROM extracted_signatures
-      GROUP BY vulnerability_severity
-    `)
-    const bySeverity: Record<string, number> = {}
-    for (const row of severityResult.toArray()) {
-      bySeverity[row.vulnerability_severity || 'none'] = row.count
-    }
-
-    return {
-      totalSignatures,
-      nonceReuse,
-      biasedNonces,
-      smallR,
-      bySeverity
-    }
+      request.onsuccess = (event) => {
+        const cursor = (event.target as IDBRequest<IDBCursorWithValue>).result
+        if (cursor) {
+          const sig = cursor.value as StoredSignature
+          total++
+          if (sig.isNonceReuse) nonceReuse++
+          if (sig.isBiasedNonce) biasedNonces++
+          if (sig.isSmallR) smallR++
+          bySeverity[sig.vulnerabilitySeverity] = (bySeverity[sig.vulnerabilitySeverity] || 0) + 1
+          cursor.continue()
+        } else {
+          resolve({ totalSignatures: total, nonceReuse, biasedNonces, smallR, bySeverity })
+        }
+      }
+    })
   }
 
   /**
@@ -514,52 +581,63 @@ export class DuckDBClient {
     onlyVulnerable?: boolean
     minLeadingZeros?: number
   } = {}): Promise<SignatureWithZ[]> {
-    if (!this.conn) throw new Error('Database not connected')
+    if (!this.db) throw new Error('Database not connected')
 
     const { limit = 100, offset = 0, onlyVulnerable = false, minLeadingZeros } = options
-
-    // Sanitize numeric parameters to prevent injection
     const sanitizedLimit = Math.max(1, Math.min(10000, Math.floor(Number(limit) || 100)))
     const sanitizedOffset = Math.max(0, Math.floor(Number(offset) || 0))
 
-    let whereClause = 'WHERE 1=1'
-    if (onlyVulnerable) {
-      whereClause += ' AND (is_nonce_reuse = TRUE OR is_biased_nonce = TRUE OR is_small_r = TRUE)'
-    }
-    if (minLeadingZeros !== undefined) {
-      const sanitizedMinZeros = Math.max(0, Math.min(256, Math.floor(Number(minLeadingZeros) || 0)))
-      whereClause += ` AND r_leading_zeros >= ${sanitizedMinZeros}`
-    }
+    return new Promise((resolve, reject) => {
+      const transaction = this.db!.transaction([STORE_NAMES.signatures], 'readonly')
+      const store = transaction.objectStore(STORE_NAMES.signatures)
 
-    const result = await this.conn.query(`
-      SELECT 
-        r, s, z,
-        transaction_hash as txHash,
-        input_index as inputIndex,
-        block_id as blockId,
-        time as timestamp,
-        address,
-        public_key as publicKey,
-        value
-      FROM extracted_signatures
-      ${whereClause}
-      ORDER BY block_id DESC
-      LIMIT ${sanitizedLimit}
-      OFFSET ${sanitizedOffset}
-    `)
+      const results: SignatureWithZ[] = []
+      let skipped = 0
+      const request = store.openCursor()
 
-    return result.toArray().map(row => ({
-      r: row.r,
-      s: row.s,
-      z: row.z || '',
-      txHash: row.txHash,
-      inputIndex: row.inputIndex,
-      blockId: row.blockId,
-      timestamp: row.timestamp,
-      address: row.address,
-      publicKey: row.publicKey,
-      value: row.value?.toString() || '0'
-    }))
+      request.onerror = () => reject(request.error)
+
+      request.onsuccess = (event) => {
+        const cursor = (event.target as IDBRequest<IDBCursorWithValue>).result
+        if (cursor && results.length < sanitizedLimit) {
+          const sig = cursor.value as StoredSignature
+
+          // Apply filters
+          if (onlyVulnerable && !sig.isNonceReuse && !sig.isBiasedNonce && !sig.isSmallR) {
+            cursor.continue()
+            return
+          }
+          if (minLeadingZeros !== undefined && sig.rLeadingZeros < minLeadingZeros) {
+            cursor.continue()
+            return
+          }
+
+          // Skip for offset
+          if (skipped < sanitizedOffset) {
+            skipped++
+            cursor.continue()
+            return
+          }
+
+          results.push({
+            r: sig.r,
+            s: sig.s,
+            z: sig.z,
+            txHash: sig.transactionHash,
+            inputIndex: sig.inputIndex,
+            blockId: sig.blockId,
+            timestamp: sig.timestamp,
+            address: sig.address,
+            publicKey: sig.publicKey,
+            value: sig.value
+          })
+
+          cursor.continue()
+        } else {
+          resolve(results)
+        }
+      }
+    })
   }
 
   /**
@@ -585,47 +663,41 @@ export class DuckDBClient {
     transactions: number
     signatures: number
   }> {
-    if (!this.conn) throw new Error('Database not connected')
+    if (!this.db) throw new Error('Database not connected')
 
-    const outputsCount = (await this.conn.query('SELECT COUNT(*) as c FROM bitcoin_outputs')).toArray()[0]?.c || 0
-    const inputsCount = (await this.conn.query('SELECT COUNT(*) as c FROM bitcoin_inputs')).toArray()[0]?.c || 0
-    const txCount = (await this.conn.query('SELECT COUNT(*) as c FROM bitcoin_transactions')).toArray()[0]?.c || 0
-    const sigCount = (await this.conn.query('SELECT COUNT(*) as c FROM extracted_signatures')).toArray()[0]?.c || 0
-
-    return {
-      outputs: outputsCount,
-      inputs: inputsCount,
-      transactions: txCount,
-      signatures: sigCount
+    const getCount = (storeName: string): Promise<number> => {
+      return new Promise((resolve, reject) => {
+        const transaction = this.db!.transaction([storeName], 'readonly')
+        const store = transaction.objectStore(storeName)
+        const request = store.count()
+        request.onerror = () => reject(request.error)
+        request.onsuccess = () => resolve(request.result)
+      })
     }
-  }
 
-  /**
-   * Execute a raw SQL query
-   */
-  async query<T = Record<string, unknown>>(sql: string): Promise<T[]> {
-    if (!this.conn) throw new Error('Database not connected')
-    const result = await this.conn.query(sql)
-    return result.toArray() as T[]
+    const [outputs, inputs, transactions, signatures] = await Promise.all([
+      getCount(STORE_NAMES.outputs),
+      getCount(STORE_NAMES.inputs),
+      getCount(STORE_NAMES.transactions),
+      getCount(STORE_NAMES.signatures)
+    ])
+
+    return { outputs, inputs, transactions, signatures }
   }
 
   /**
    * Check if the client is initialized
    */
   isReady(): boolean {
-    return this.isInitialized && this.conn !== null
+    return this.isInitialized && this.db !== null
   }
 
   /**
    * Close the database connection
    */
   async close(): Promise<void> {
-    if (this.conn) {
-      await this.conn.close()
-      this.conn = null
-    }
     if (this.db) {
-      await this.db.terminate()
+      this.db.close()
       this.db = null
     }
     this.isInitialized = false

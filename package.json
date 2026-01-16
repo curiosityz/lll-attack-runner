@@ -12,7 +12,6 @@
         "preview": "vite preview"
     },
     "dependencies": {
-        "@duckdb/duckdb-wasm": "^1.30.0",
         "@github/spark": ">=0.43.1 <1",
         "@heroicons/react": "^2.2.0",
         "@hookform/resolvers": "^4.1.3",
