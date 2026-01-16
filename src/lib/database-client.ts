@@ -13,16 +13,24 @@
  * Alternative databases supported:
  * - ClickHouse (via HTTP interface)
  * - InfluxDB (via HTTP API)
+ * - Cloudflare D1 (serverless SQLite)
  */
 
 import { ExtractedSignature } from './blockchair-parser'
 import { ParsedSignature } from './dataParser'
 
 // ============================================================================
+// Constants
+// ============================================================================
+
+// Cloudflare D1 batch size limit (may vary by plan)
+const D1_BATCH_SIZE = 100
+
+// ============================================================================
 // Types and Interfaces
 // ============================================================================
 
-export type DatabaseType = 'questdb' | 'clickhouse' | 'influxdb'
+export type DatabaseType = 'questdb' | 'clickhouse' | 'influxdb' | 'cloudflare-d1'
 
 export interface DatabaseConfig {
   type: DatabaseType
@@ -35,6 +43,10 @@ export interface DatabaseConfig {
   org?: string
   bucket?: string
   token?: string
+  // For Cloudflare D1
+  accountId?: string
+  databaseId?: string
+  apiToken?: string
   // Connection options
   useTLS: boolean
   timeout: number
@@ -86,7 +98,11 @@ export const DEFAULT_DATABASE_CONFIG: DatabaseConfig = {
   port: 9000,
   database: 'crypto_signatures',
   useTLS: false,
-  timeout: 30000
+  timeout: 30000,
+  // Cloudflare D1 defaults (will need to be configured by user)
+  accountId: '',
+  databaseId: '',
+  apiToken: ''
 }
 
 // ============================================================================
@@ -115,6 +131,10 @@ export class DatabaseClient {
    * Get the base URL for the database
    */
   private getBaseUrl(): string {
+    if (this.config.type === 'cloudflare-d1') {
+      // Cloudflare D1 uses API endpoint
+      return `https://api.cloudflare.com/client/v4/accounts/${this.config.accountId}/d1/database/${this.config.databaseId}`
+    }
     const protocol = this.config.useTLS ? 'https' : 'http'
     return `${protocol}://${this.config.host}:${this.config.port}`
   }
@@ -161,6 +181,22 @@ export class DatabaseClient {
           })
           break
 
+        case 'cloudflare-d1':
+          // Cloudflare D1 test query
+          if (!this.config.accountId || !this.config.databaseId || !this.config.apiToken) {
+            return { 
+              success: false, 
+              message: 'Cloudflare D1 requires accountId, databaseId, and apiToken' 
+            }
+          }
+          response = await fetch(`${this.getBaseUrl()}/query`, {
+            method: 'POST',
+            signal: controller.signal,
+            headers: this.getAuthHeaders(),
+            body: JSON.stringify({ sql: 'SELECT 1' })
+          })
+          break
+
         default:
           throw new Error(`Unsupported database type: ${this.config.type}`)
       }
@@ -172,7 +208,7 @@ export class DatabaseClient {
         this.isConnected = true
         return { 
           success: true, 
-          message: `Connected to ${this.config.type} at ${this.config.host}:${this.config.port}`,
+          message: `Connected to ${this.config.type} ${this.config.type === 'cloudflare-d1' ? 'database' : `at ${this.config.host}:${this.config.port}`}`,
           latency 
         }
       } else {
@@ -208,6 +244,10 @@ export class DatabaseClient {
 
     if (this.config.type === 'influxdb' && this.config.token) {
       headers['Authorization'] = `Token ${this.config.token}`
+    }
+
+    if (this.config.type === 'cloudflare-d1' && this.config.apiToken) {
+      headers['Authorization'] = `Bearer ${this.config.apiToken}`
     }
 
     return headers
@@ -286,6 +326,35 @@ export class DatabaseClient {
           PARTITION BY toYYYYMMDD(timestamp);
         `
 
+      case 'cloudflare-d1':
+        return `
+          CREATE TABLE IF NOT EXISTS crypto_signatures (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            r_value TEXT NOT NULL,
+            s_value TEXT NOT NULL,
+            z_hash TEXT NOT NULL,
+            pubkey TEXT,
+            address TEXT,
+            tx_hash TEXT NOT NULL,
+            input_index INTEGER NOT NULL,
+            block_id INTEGER NOT NULL,
+            timestamp INTEGER NOT NULL,
+            value_satoshis TEXT NOT NULL,
+            sighash_type INTEGER NOT NULL,
+            signature_type TEXT NOT NULL,
+            is_nonce_reuse INTEGER NOT NULL DEFAULT 0,
+            is_biased_nonce INTEGER NOT NULL DEFAULT 0,
+            is_small_r INTEGER NOT NULL DEFAULT 0,
+            is_related_nonce INTEGER NOT NULL DEFAULT 0,
+            r_leading_zeros INTEGER NOT NULL DEFAULT 0,
+            vulnerability_severity TEXT NOT NULL
+          );
+          CREATE INDEX IF NOT EXISTS idx_r_value ON crypto_signatures(r_value);
+          CREATE INDEX IF NOT EXISTS idx_block_id ON crypto_signatures(block_id);
+          CREATE INDEX IF NOT EXISTS idx_timestamp ON crypto_signatures(timestamp);
+          CREATE INDEX IF NOT EXISTS idx_vulnerability ON crypto_signatures(vulnerability_severity);
+        `
+
       case 'influxdb':
         // InfluxDB uses schemaless approach - no explicit schema creation needed
         return ''
@@ -317,6 +386,11 @@ export class DatabaseClient {
         case 'influxdb':
           url = `${this.getBaseUrl()}/api/v2/query?org=${this.config.org || 'default'}`
           body = JSON.stringify({ query, type: 'flux' })
+          break
+
+        case 'cloudflare-d1':
+          url = `${this.getBaseUrl()}/query`
+          body = JSON.stringify({ sql: query })
           break
 
         default:
@@ -527,6 +601,56 @@ export class DatabaseClient {
             errors.push(`InfluxDB write error: ${errorText}`)
           }
           break
+
+        case 'cloudflare-d1':
+          // Use D1 batch insert API
+          const d1Statements = records.map(r => ({
+            sql: `INSERT INTO crypto_signatures (
+              r_value, s_value, z_hash, pubkey, address, tx_hash,
+              input_index, block_id, timestamp, value_satoshis,
+              sighash_type, signature_type, is_nonce_reuse, is_biased_nonce,
+              is_small_r, is_related_nonce, r_leading_zeros, vulnerability_severity
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            params: [
+              r.r_value,
+              r.s_value,
+              r.z_hash,
+              r.pubkey,
+              r.address,
+              r.tx_hash,
+              r.input_index,
+              r.block_id,
+              r.timestamp,
+              r.value_satoshis,
+              r.sighash_type,
+              r.signature_type,
+              r.is_nonce_reuse ? 1 : 0,
+              r.is_biased_nonce ? 1 : 0,
+              r.is_small_r ? 1 : 0,
+              r.is_related_nonce ? 1 : 0,
+              r.r_leading_zeros,
+              r.vulnerability_severity
+            ]
+          }))
+
+          // D1 has a limit on batch size, so we chunk if needed
+          for (let i = 0; i < d1Statements.length; i += D1_BATCH_SIZE) {
+            const chunk = d1Statements.slice(i, i + D1_BATCH_SIZE)
+            const d1Response = await fetch(`${this.getBaseUrl()}/query`, {
+              method: 'POST',
+              headers: this.getAuthHeaders(),
+              body: JSON.stringify(chunk)
+            })
+            
+            if (d1Response.ok) {
+              successCount += chunk.length
+              this.stats.bytesWritten += JSON.stringify(chunk).length
+            } else {
+              const errorText = await d1Response.text()
+              errors.push(`Cloudflare D1 write error: ${errorText}`)
+            }
+          }
+          break
       }
 
       // Update stats
@@ -683,6 +807,18 @@ export class DatabaseClient {
         `
         break
 
+      case 'cloudflare-d1':
+        query = `
+          SELECT * FROM crypto_signatures 
+          WHERE r_value IN (
+            SELECT r_value FROM crypto_signatures 
+            GROUP BY r_value 
+            HAVING count(*) > 1
+          )
+          ORDER BY r_value, timestamp
+        `
+        break
+
       default:
         return { success: false, message: 'Query not supported for this database type' }
     }
@@ -709,6 +845,15 @@ export class DatabaseClient {
       case 'clickhouse':
         query = `
           SELECT * FROM ${this.config.database || 'default'}.crypto_signatures 
+          WHERE r_leading_zeros >= ${minLeadingZeros}
+          ORDER BY r_leading_zeros DESC, timestamp
+          LIMIT 1000
+        `
+        break
+
+      case 'cloudflare-d1':
+        query = `
+          SELECT * FROM crypto_signatures 
           WHERE r_leading_zeros >= ${minLeadingZeros}
           ORDER BY r_leading_zeros DESC, timestamp
           LIMIT 1000
