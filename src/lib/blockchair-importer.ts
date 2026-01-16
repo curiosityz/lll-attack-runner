@@ -11,6 +11,7 @@
  * - Date range specification (2009-2026)
  * - Integration with DuckDB for data storage
  * - R, S extraction and Z calculation
+ * - Smart error handling: gracefully skips missing files (404), retries transient errors
  */
 
 import { getDuckDBClient, DuckDBClient, ImportProgress, ImportStats } from './duckdb-client'
@@ -104,8 +105,42 @@ export function getDefaultDateRange(): DateRange {
 }
 
 // ============================================================================
+// Constants
+// ============================================================================
+
+// Retry configuration
+const MAX_RETRIES = 3
+const INITIAL_BACKOFF_MS = 1000
+const BACKOFF_MULTIPLIER = 2
+const MAX_BACKOFF_MS = 10000
+
+// ============================================================================
 // File Download and Decompression
 // ============================================================================
+
+/**
+ * Custom error types for better error handling
+ */
+class FileNotFoundError extends Error {
+  constructor(url: string) {
+    super(`File not found: ${url}`)
+    this.name = 'FileNotFoundError'
+  }
+}
+
+class RetryableError extends Error {
+  constructor(message: string, public statusCode?: number) {
+    super(message)
+    this.name = 'RetryableError'
+  }
+}
+
+/**
+ * Calculate exponential backoff delay
+ */
+function calculateBackoffMs(attempt: number): number {
+  return Math.min(INITIAL_BACKOFF_MS * Math.pow(BACKOFF_MULTIPLIER, attempt), MAX_BACKOFF_MS)
+}
 
 /**
  * Download a gzipped file and decompress it
@@ -117,6 +152,22 @@ async function downloadAndDecompress(
   const response = await fetch(url)
   
   if (!response.ok) {
+    // 404 means file doesn't exist for this date - not an error, just skip it
+    if (response.status === 404) {
+      throw new FileNotFoundError(url)
+    }
+    
+    // 5xx errors are server errors - retryable
+    if (response.status >= 500 && response.status < 600) {
+      throw new RetryableError(`Server error: ${response.status} ${response.statusText}`, response.status)
+    }
+    
+    // 429 is rate limiting - retryable
+    if (response.status === 429) {
+      throw new RetryableError(`Rate limited: ${response.statusText}`, response.status)
+    }
+    
+    // Other errors are fatal
     throw new Error(`Failed to download ${url}: ${response.status} ${response.statusText}`)
   }
   
@@ -161,19 +212,56 @@ async function downloadAndDecompress(
 }
 
 /**
- * Try to download with fallback URLs
+ * Sleep for a given number of milliseconds
+ */
+function sleep(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms))
+}
+
+/**
+ * Try to download with retry logic and exponential backoff
  */
 async function downloadWithFallback(
   primaryUrl: string,
-  onProgress?: (downloaded: number, total: number) => void
+  onProgress?: (downloaded: number, total: number) => void,
+  maxRetries: number = MAX_RETRIES
 ): Promise<string> {
-  try {
-    return await downloadAndDecompress(primaryUrl, onProgress)
-  } catch (error) {
-    // If primary fails, the file might not exist for this date
-    console.warn(`Failed to download ${primaryUrl}:`, error)
-    throw error
+  let lastError: Error | null = null
+  
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      return await downloadAndDecompress(primaryUrl, onProgress)
+    } catch (error) {
+      lastError = error as Error
+      
+      // If file doesn't exist (404), don't retry - just throw immediately
+      if (error instanceof FileNotFoundError) {
+        throw error
+      }
+      
+      // If it's a retryable error and we have retries left, wait and retry
+      if (error instanceof RetryableError && attempt < maxRetries) {
+        const backoffMs = calculateBackoffMs(attempt)
+        console.log(`[Importer] Retrying ${primaryUrl} after ${backoffMs}ms (attempt ${attempt + 1}/${maxRetries})`)
+        await sleep(backoffMs)
+        continue
+      }
+      
+      // For network errors (TypeError from fetch), retry with backoff
+      if (error instanceof TypeError && attempt < maxRetries) {
+        const backoffMs = calculateBackoffMs(attempt)
+        console.log(`[Importer] Network error, retrying ${primaryUrl} after ${backoffMs}ms (attempt ${attempt + 1}/${maxRetries})`)
+        await sleep(backoffMs)
+        continue
+      }
+      
+      // Otherwise, this is a fatal error or we're out of retries
+      console.warn(`Failed to download ${primaryUrl} (attempt ${attempt + 1}/${maxRetries + 1}):`, error)
+    }
   }
+  
+  // All retries exhausted
+  throw lastError || new Error(`Failed to download ${primaryUrl} after ${maxRetries} retries`)
 }
 
 // ============================================================================
@@ -188,7 +276,7 @@ async function importFile(
   date: Date,
   db: DuckDBClient,
   onProgress?: (progress: ImportProgress) => void
-): Promise<{ rowsImported: number; bytesDownloaded: number }> {
+): Promise<{ rowsImported: number; bytesDownloaded: number; skipped: boolean }> {
   const dateStr = formatDateForUrl(date)
   const url = URL_PATTERNS[dataType](dateStr)
   const dateDisplay = date.toISOString().split('T')[0]
@@ -229,8 +317,14 @@ async function importFile(
     progress.rowsImported = rowsImported
     onProgress?.({ ...progress })
     
-    return { rowsImported, bytesDownloaded }
+    return { rowsImported, bytesDownloaded, skipped: false }
   } catch (error) {
+    // If file doesn't exist (404), this is expected - just skip silently
+    if (error instanceof FileNotFoundError) {
+      return { rowsImported: 0, bytesDownloaded: 0, skipped: true }
+    }
+    
+    // For all other errors, report them
     progress.status = 'error'
     progress.error = error instanceof Error ? error.message : 'Unknown error'
     onProgress?.({ ...progress })
@@ -280,6 +374,9 @@ export async function importBlockchairData(options: ImportOptions): Promise<Impo
     elapsedMs: 0
   }
   
+  // Track skipped files (404s) separately
+  let skippedFiles = 0
+  
   // Process files with controlled concurrency
   const queue = [...files]
   const inProgress: Promise<void>[] = []
@@ -292,9 +389,16 @@ export async function importBlockchairData(options: ImportOptions): Promise<Impo
       try {
         const result = await importFile(file.dataType, file.date, db, onProgress)
         stats.completedFiles++
-        stats.totalRows += result.rowsImported
-        stats.bytesDownloaded += result.bytesDownloaded
+        
+        if (result.skipped) {
+          // File doesn't exist (404) - not an error, just skip
+          skippedFiles++
+        } else {
+          stats.totalRows += result.rowsImported
+          stats.bytesDownloaded += result.bytesDownloaded
+        }
       } catch (error) {
+        // Only log genuine errors (not 404s)
         const errorMsg = `${file.dataType}/${formatDateForUrl(file.date)}: ${error instanceof Error ? error.message : 'Unknown error'}`
         stats.errors.push(errorMsg)
         stats.completedFiles++
@@ -312,6 +416,11 @@ export async function importBlockchairData(options: ImportOptions): Promise<Impo
   
   // Wait for all workers to complete
   await Promise.all(inProgress)
+  
+  // Log summary of skipped files
+  if (skippedFiles > 0) {
+    console.log(`[Importer] Skipped ${skippedFiles} files (not found on server) - this is normal`)
+  }
   
   // Post-processing: Extract signatures from inputs
   if (extractSignatures && dataTypes.includes('inputs')) {
@@ -508,6 +617,9 @@ export async function importFromUrlList(
     elapsedMs: 0
   }
   
+  // Track skipped files (404s) separately
+  let skippedFiles = 0
+  
   // Process with controlled concurrency
   const queue = [...filteredUrls]
   
@@ -526,7 +638,7 @@ export async function importFromUrlList(
       onProgress?.(progress)
       
       try {
-        const content = await downloadAndDecompress(item.url, (downloaded, total) => {
+        const content = await downloadWithFallback(item.url, (downloaded, total) => {
           stats.bytesDownloaded = downloaded
           progress.progress = Math.round((downloaded / total) * 50)
           onProgress?.({ ...progress })
@@ -550,13 +662,21 @@ export async function importFromUrlList(
         progress.rowsImported = rowsImported
         onProgress?.({ ...progress })
       } catch (error) {
-        const errorMsg = `${item.url}: ${error instanceof Error ? error.message : 'Unknown error'}`
-        stats.errors.push(errorMsg)
-        stats.completedFiles++
-        
-        progress.status = 'error'
-        progress.error = errorMsg
-        onProgress?.({ ...progress })
+        // If file doesn't exist (404), this is expected - just skip silently
+        if (error instanceof FileNotFoundError) {
+          stats.completedFiles++
+          skippedFiles++
+          // Don't report as error
+        } else {
+          // Only log genuine errors (not 404s)
+          const errorMsg = `${item.url}: ${error instanceof Error ? error.message : 'Unknown error'}`
+          stats.errors.push(errorMsg)
+          stats.completedFiles++
+          
+          progress.status = 'error'
+          progress.error = errorMsg
+          onProgress?.({ ...progress })
+        }
       }
       
       stats.elapsedMs = Date.now() - stats.startTime
@@ -571,6 +691,11 @@ export async function importFromUrlList(
   }
   
   await Promise.all(workers)
+  
+  // Log summary of skipped files
+  if (skippedFiles > 0) {
+    console.log(`[Importer] Skipped ${skippedFiles} files (not found on server) - this is normal`)
+  }
   
   stats.elapsedMs = Date.now() - stats.startTime
   return stats
