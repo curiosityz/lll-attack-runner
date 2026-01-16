@@ -45,6 +45,8 @@ import { buildHNPLatticeWithDimensionSelection, BatchHNPLatticeResult } from '@/
 import { interpretBKZResult, InterpreterResult, isKeyFound, getRetryRecommendation } from '@/lib/result-interpreter'
 import { DimensionSelectorDisplay } from '@/components/DimensionSelectorDisplay'
 import { selectDimension, DimensionSelectionResult } from '@/lib/dimension-selector'
+import { DatabaseConfigPanel } from '@/components/DatabaseConfigPanel'
+import { getDatabaseClient } from '@/lib/database-client'
 
 /**
  * Converts a BigInt matrix to a number matrix for display and processing.
@@ -135,6 +137,7 @@ function App() {
   const [targetAddress, setTargetAddress] = useState<string>('')
   const [dimensionSelectionResult, setDimensionSelectionResult] = useState<DimensionSelectionResult | null>(null)
   const [batchResults, setBatchResults] = useState<BatchHNPLatticeResult | null>(null)
+  const [dbStreamingEnabled, setDbStreamingEnabled] = useKV<boolean>('database-streaming-enabled', false)
 
   const handleAddressAttack = (address: string, basis: number[][], attackName: string) => {
     const dimension = basis.length
@@ -220,6 +223,20 @@ function App() {
     setUploadedSignatures(signatures)
     setIsAnalyzing(true)
     
+    // Stream to database if enabled
+    if (dbStreamingEnabled && signatures.length > 0) {
+      const dbClient = getDatabaseClient()
+      dbClient.streamParsedSignatures(signatures).then(result => {
+        if (result.success) {
+          toast.success(`Streamed ${result.count} signatures to database`)
+        } else if (result.errors.length > 0) {
+          toast.error(`Database streaming error: ${result.errors[0]}`)
+        }
+      }).catch(err => {
+        toast.error(`Database streaming failed: ${err.message}`)
+      })
+    }
+    
     setTimeout(() => {
       const result = analyzeSignatures(signatures)
       setAnalysisResult(result)
@@ -255,6 +272,20 @@ function App() {
     setUploadedSignatures(signatures)
     setBlockchairRawSignatures(rawSignatures)
     setIsAnalyzing(true)
+    
+    // Stream to database if enabled
+    if (dbStreamingEnabled && rawSignatures.length > 0) {
+      const dbClient = getDatabaseClient()
+      dbClient.streamSignatures(rawSignatures).then(result => {
+        if (result.success) {
+          toast.success(`Streamed ${result.count} signatures to database`)
+        } else if (result.errors.length > 0) {
+          toast.error(`Database streaming error: ${result.errors[0]}`)
+        }
+      }).catch(err => {
+        toast.error(`Database streaming failed: ${err.message}`)
+      })
+    }
     
     setTimeout(() => {
       const result = analyzeSignatures(signatures)
@@ -873,6 +904,9 @@ function App() {
             <BlockchairUpload onSignaturesExtracted={handleBlockchairSignatures} />
             <AddressLookup onAttackGenerated={handleAddressAttack} />
             <DataUpload onDataParsed={handleDataParsed} />
+            <DatabaseConfigPanel 
+              onStreamingEnabledChange={(enabled) => setDbStreamingEnabled(enabled)} 
+            />
           </TabsContent>
 
           <TabsContent value="analyze" className="space-y-6">
