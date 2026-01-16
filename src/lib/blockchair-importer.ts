@@ -22,6 +22,7 @@ import {
   extractSignaturesFromInputs,
   analyzeSignaturesForVulnerabilities
 } from './blockchair-parser'
+import { fetchWithCORSProxy } from './cors-proxy'
 
 // ============================================================================
 // Types and Constants
@@ -149,7 +150,22 @@ async function downloadAndDecompress(
   url: string,
   onProgress?: (downloaded: number, total: number) => void
 ): Promise<string> {
-  const response = await fetch(url)
+  let response: Response
+  
+  try {
+    // Try with CORS proxy first for cross-origin requests
+    response = await fetchWithCORSProxy(url)
+  } catch (error) {
+    const errorMsg = error instanceof Error ? error.message : String(error)
+    
+    // If CORS proxy isn't available or blocked, try direct fetch as fallback
+    if (errorMsg === 'CORS_PROXY_NOT_AVAILABLE' || errorMsg === 'CORS_BLOCKED') {
+      console.log(`[Importer] CORS proxy not available for ${url}, trying direct fetch`)
+      response = await fetch(url)
+    } else {
+      throw error
+    }
+  }
   
   if (!response.ok) {
     // 404 means file doesn't exist for this date - not an error, just skip it
