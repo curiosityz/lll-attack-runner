@@ -8,6 +8,7 @@
  * - Parallel download with progress tracking
  * - IndexedDB-based local storage for data persistence
  * - R, S extraction and Z calculation
+ * - URL list import from dl-urls.txt
  */
 
 import { useState, useEffect, useCallback } from 'react'
@@ -34,7 +35,8 @@ import {
   FileText,
   CalendarBlank,
   HardDrive,
-  MagnifyingGlass
+  MagnifyingGlass,
+  ListBullets
 } from '@phosphor-icons/react'
 import { toast } from 'sonner'
 import {
@@ -42,10 +44,15 @@ import {
   getDefaultDateRange,
   estimateFileCount,
   DataType,
-  ImportOptions
+  ImportOptions,
+  importFromUrlList,
+  parseUrlListFile
 } from '@/lib/blockchair-importer'
 import { ImportProgress, ImportStats } from '@/lib/duckdb-client'
 import { initializeDuckDB, getDuckDBClient } from '@/lib/duckdb-client'
+
+// Valid data types for import
+const VALID_DATA_TYPES: DataType[] = ['outputs', 'inputs', 'transactions']
 
 interface BlockchairDataImportProps {
   className?: string
@@ -83,6 +90,8 @@ export function BlockchairDataImport({ className, onImportComplete }: Blockchair
   const [stats, setStats] = useState<ImportStats | null>(null)
   const [fileProgress, setFileProgress] = useState<Map<string, FileProgress>>(new Map())
   const [recentProgress, setRecentProgress] = useState<FileProgress[]>([])
+  const [urlListInfo, setUrlListInfo] = useState<{ totalUrls: number; byType: Record<string, number> } | null>(null)
+  const [urlListContent, setUrlListContent] = useState<string | null>(null)
   
   // Database state
   const [isDbReady, setIsDbReady] = useState(false)
@@ -101,6 +110,30 @@ export function BlockchairDataImport({ className, onImportComplete }: Blockchair
         await initializeDuckDB()
         setIsDbReady(true)
         await updateTableCounts()
+        
+        // Fetch and parse dl-urls.txt file info
+        try {
+          const response = await fetch('/dl-urls.txt')
+          if (response.ok) {
+            const content = await response.text()
+            setUrlListContent(content) // Cache content for later use
+            
+            const parsed = parseUrlListFile(content)
+            // Filter out 'blocks' and 'unknown' types and count only valid data types
+            const validUrls = parsed.filter(item => VALID_DATA_TYPES.includes(item.dataType as DataType))
+            const byType = validUrls.reduce((acc, item) => {
+              acc[item.dataType] = (acc[item.dataType] || 0) + 1
+              return acc
+            }, {} as Record<string, number>)
+            
+            setUrlListInfo({ 
+              totalUrls: validUrls.length, 
+              byType 
+            })
+          }
+        } catch (error) {
+          console.warn('Could not fetch dl-urls.txt:', error)
+        }
       } catch (error) {
         setDbError(error instanceof Error ? error.message : 'Failed to initialize database')
       }
@@ -225,6 +258,60 @@ export function BlockchairDataImport({ className, onImportComplete }: Blockchair
       }
       
       const finalStats = await importBlockchairData(options)
+      setStats(finalStats)
+      
+      await updateTableCounts()
+      
+      toast.success(`Import complete! ${finalStats.totalRows.toLocaleString()} rows imported.`)
+      onImportComplete?.(finalStats)
+    } catch (error) {
+      toast.error(`Import failed: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    } finally {
+      setIsImporting(false)
+    }
+  }
+  
+  // Start import from URL list
+  const startImportFromUrlList = async () => {
+    const dataTypes = getSelectedDataTypes()
+    
+    if (dataTypes.length === 0) {
+      toast.error('Please select at least one data type to import')
+      return
+    }
+    
+    if (!isDbReady) {
+      toast.error('Database is not ready. Please wait for initialization.')
+      return
+    }
+    
+    setIsImporting(true)
+    setIsPaused(false)
+    setFileProgress(new Map())
+    setRecentProgress([])
+    setStats(null)
+    
+    try {
+      let content = urlListContent
+      
+      // If content is not cached, fetch it
+      if (!content) {
+        toast.info('Fetching URL list...')
+        const response = await fetch('/dl-urls.txt')
+        if (!response.ok) {
+          throw new Error('Failed to fetch dl-urls.txt')
+        }
+        content = await response.text()
+        setUrlListContent(content) // Cache for future use
+      }
+      
+      const finalStats = await importFromUrlList(content, {
+        dataTypes,
+        onProgress: handleProgress,
+        onStats: handleStats,
+        concurrency
+      })
+      
       setStats(finalStats)
       
       await updateTableCounts()
@@ -463,6 +550,48 @@ export function BlockchairDataImport({ className, onImportComplete }: Blockchair
           </div>
         </div>
       </div>
+      
+      {/* URL List Import Option */}
+      {urlListInfo && (
+        <div className="mb-4 p-4 rounded-lg bg-accent/10 border border-accent/30">
+          <div className="flex items-start gap-3">
+            <ListBullets size={20} className="text-accent mt-0.5 flex-shrink-0" weight="duotone" />
+            <div className="flex-1">
+              <div className="font-semibold text-sm mb-2">Import from Local URL List</div>
+              <p className="text-xs text-muted-foreground mb-3">
+                Found <strong>dl-urls.txt</strong> with {urlListInfo.totalUrls.toLocaleString()} URLs ready to import:
+              </p>
+              <div className="flex gap-3 text-xs mb-3">
+                {urlListInfo.byType.outputs && (
+                  <div className="px-2 py-1 bg-primary/20 rounded">
+                    <strong>{urlListInfo.byType.outputs.toLocaleString()}</strong> outputs
+                  </div>
+                )}
+                {urlListInfo.byType.inputs && (
+                  <div className="px-2 py-1 bg-accent/20 rounded">
+                    <strong>{urlListInfo.byType.inputs.toLocaleString()}</strong> inputs
+                  </div>
+                )}
+                {urlListInfo.byType.transactions && (
+                  <div className="px-2 py-1 bg-success/20 rounded">
+                    <strong>{urlListInfo.byType.transactions.toLocaleString()}</strong> transactions
+                  </div>
+                )}
+              </div>
+              <Button
+                onClick={startImportFromUrlList}
+                disabled={isImporting || !isDbReady || getSelectedDataTypes().length === 0}
+                variant="outline"
+                size="sm"
+                className="border-accent/50 hover:bg-accent/10"
+              >
+                <ListBullets size={16} weight="duotone" />
+                Import from URL List
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
       
       <Separator className="my-4" />
       
