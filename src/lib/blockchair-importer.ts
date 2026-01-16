@@ -11,6 +11,7 @@
  * - Date range specification (2009-2026)
  * - Integration with DuckDB for data storage
  * - R, S extraction and Z calculation
+ * - Smart error handling: gracefully skips missing files (404), retries transient errors
  */
 
 import { getDuckDBClient, DuckDBClient, ImportProgress, ImportStats } from './duckdb-client'
