@@ -47,6 +47,7 @@ import { DimensionSelectorDisplay } from '@/components/DimensionSelectorDisplay'
 import { selectDimension, DimensionSelectionResult } from '@/lib/dimension-selector'
 import { DatabaseConfigPanel } from '@/components/DatabaseConfigPanel'
 import { getDatabaseClient } from '@/lib/database-client'
+import { BlockchairDataImport } from '@/components/BlockchairDataImport'
 
 /**
  * Converts a BigInt matrix to a number matrix for display and processing.
@@ -901,6 +902,7 @@ function App() {
                 <strong> Solution:</strong> Upload signature data files (JSON/CSV/TSV) directly for full functionality.
               </AlertDescription>
             </Alert>
+            <BlockchairDataImport />
             <BlockchairUpload onSignaturesExtracted={handleBlockchairSignatures} />
             <AddressLookup onAttackGenerated={handleAddressAttack} />
             <DataUpload onDataParsed={handleDataParsed} />
