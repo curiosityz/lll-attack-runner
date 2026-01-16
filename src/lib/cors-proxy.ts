@@ -65,7 +65,7 @@ class CORSProxyManager {
            timeSinceFailure < this.proxyBlacklistDuration
   }
 
-  private getAvailableProxies(): CORSProxyConfig[] {
+  getAvailableProxies(): CORSProxyConfig[] {
     return CORS_PROXIES.filter(proxy => {
       const state = this.proxyStates.get(proxy.name)
       return state && !this.isProxyBlacklisted(state)
@@ -151,6 +151,10 @@ class CORSProxyManager {
 
 export const corsProxyManager = new CORSProxyManager()
 
+// Timeout configuration
+const DIRECT_FETCH_TIMEOUT_MS = 8000
+const PROXY_FETCH_TIMEOUT_MS = 10000
+
 export async function fetchWithCORSProxy(
   targetUrl: string,
   options: RequestInit = {},
@@ -176,9 +180,10 @@ export async function fetchWithCORSProxy(
     return fetch(targetUrl, options)
   }
 
+  // Try direct fetch first
   try {
     const controller = new AbortController()
-    const timeoutId = setTimeout(() => controller.abort(), 8000)
+    const timeoutId = setTimeout(() => controller.abort(), DIRECT_FETCH_TIMEOUT_MS)
 
     const response = await fetch(targetUrl, {
       ...options,
@@ -201,7 +206,53 @@ export async function fetchWithCORSProxy(
       throw lastError
     }
     
+    // If direct fetch fails with CORS/network errors, try using CORS proxies
     if (lastError.message.includes('CORS') || lastError.name === 'TypeError' || lastError.name === 'AbortError') {
+      console.log(`[CORS Proxy] Direct fetch failed, trying proxies for ${targetUrl}`)
+      
+      // Get all available proxies upfront (sorted by priority/success)
+      let availableProxies = corsProxyManager.getAvailableProxies()
+      
+      if (availableProxies.length === 0) {
+        console.warn('[CORS Proxy] No available proxies, resetting all')
+        corsProxyManager.reset()
+        availableProxies = CORS_PROXIES.slice().sort((a, b) => a.priority - b.priority)
+      }
+      
+      // Try up to maxRetries different proxies
+      const proxiesToTry = Math.min(availableProxies.length, maxRetries)
+      for (let i = 0; i < proxiesToTry; i++) {
+        const proxy = availableProxies[i]
+        const proxyUrl = proxy.url(targetUrl)
+        
+        try {
+          const startTime = Date.now()
+          const controller = new AbortController()
+          const timeoutId = setTimeout(() => controller.abort(), PROXY_FETCH_TIMEOUT_MS)
+          
+          const response = await fetch(proxyUrl, {
+            ...options,
+            signal: controller.signal,
+            mode: 'cors',
+            cache: 'no-cache'
+          })
+          
+          clearTimeout(timeoutId)
+          
+          if (response.ok) {
+            const responseTime = Date.now() - startTime
+            corsProxyManager.recordSuccess(proxy.name, responseTime)
+            return response
+          } else {
+            corsProxyManager.recordFailure(proxy.name, `HTTP ${response.status}`)
+          }
+        } catch (proxyError) {
+          const errMsg = proxyError instanceof Error ? proxyError.message : String(proxyError)
+          corsProxyManager.recordFailure(proxy.name, errMsg)
+        }
+      }
+      
+      // All proxies failed
       throw new Error('CORS_BLOCKED')
     }
     
