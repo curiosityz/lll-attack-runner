@@ -223,20 +223,21 @@ async function validatePrivateKey(
       return { isValid: false, derivedAddress }
     }
     
-    // Normalize addresses for comparison
-    // Remove common prefixes and convert to lowercase for comparison
-    const normalizedTarget = targetAddress.toLowerCase()
-      .replace(/^0x/, '')        // Ethereum prefix
-      .trim()
-    const normalizedDerived = derivedAddress.toLowerCase().replace(/^0x/, '')
+    // Check if target is a Bitcoin address (Base58Check format)
+    const isBitcoinAddress = /^[13][a-km-zA-HJ-NP-Z1-9]{25,34}$/.test(targetAddress) ||
+                             /^bc1[a-z0-9]{39,59}$/.test(targetAddress)
     
-    // Strict comparison: require exact match
-    const isExactMatch = normalizedDerived === normalizedTarget
+    let isValid: boolean
     
-    // For Bitcoin addresses, compare the full Base58Check string
-    const isBitcoinMatch = derivedAddress === targetAddress
-    
-    const isValid = isExactMatch || isBitcoinMatch
+    if (isBitcoinAddress) {
+      // For Bitcoin addresses, compare the full Base58Check string exactly
+      isValid = derivedAddress === targetAddress
+    } else {
+      // For Ethereum addresses, normalize and compare (case-insensitive, remove 0x prefix)
+      const normalizedTarget = targetAddress.toLowerCase().replace(/^0x/, '').trim()
+      const normalizedDerived = derivedAddress.toLowerCase().replace(/^0x/, '')
+      isValid = normalizedDerived === normalizedTarget
+    }
     
     return { isValid, derivedAddress }
   } catch {

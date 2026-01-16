@@ -47,8 +47,7 @@ export async function sha256(data: Uint8Array): Promise<Uint8Array> {
   if (typeof crypto === 'undefined' || !crypto.subtle) {
     throw new Error('Web Crypto API not available')
   }
-  const buffer = data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength)
-  const hashBuffer = await crypto.subtle.digest('SHA-256', buffer as ArrayBuffer)
+  const hashBuffer = await crypto.subtle.digest('SHA-256', data)
   return new Uint8Array(hashBuffer)
 }
 
@@ -112,7 +111,8 @@ export function ripemd160(data: Uint8Array): Uint8Array {
   // Padding
   const msgLen = data.length
   const bitLen = msgLen * 8
-  const padLen = (msgLen % 64 < 56) ? (56 - msgLen % 64) : (120 - msgLen % 64)
+  const msgMod64 = msgLen % 64
+  const padLen = msgMod64 < 56 ? 56 - msgMod64 : 120 - msgMod64
   const padded = new Uint8Array(msgLen + padLen + 8)
   padded.set(data)
   padded[msgLen] = 0x80
@@ -226,7 +226,10 @@ export function keccak256(data: Uint8Array): Uint8Array {
   ]
 
   // Pad the message (Keccak padding: append 01, then 10*1)
-  const padded = new Uint8Array(Math.ceil((data.length + 1) / RATE) * RATE)
+  // We need at least 2 bytes for padding (01 at start, 80 at end)
+  // When data.length + 1 is already a multiple of RATE, we need an extra block
+  const paddedLen = Math.ceil((data.length + 2) / RATE) * RATE
+  const padded = new Uint8Array(paddedLen)
   padded.set(data)
   padded[data.length] = 0x01
   padded[padded.length - 1] |= 0x80
@@ -472,13 +475,4 @@ export async function privateKeyToWIF(
   
   // Base58Check encode
   return await base58CheckEncode(payload)
-}
-
-// ============================================================================
-// Exports
-// ============================================================================
-
-export {
-  hexToBytes as hexStringToBytes,
-  bytesToHex as bytesToHexString
 }
