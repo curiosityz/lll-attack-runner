@@ -48,6 +48,7 @@ import { selectDimension, DimensionSelectionResult } from '@/lib/dimension-selec
 import { DatabaseConfigPanel } from '@/components/DatabaseConfigPanel'
 import { getDatabaseClient } from '@/lib/database-client'
 import { BlockchairDataImport } from '@/components/BlockchairDataImport'
+import { UrlListStreamToD1 } from '@/components/UrlListStreamToD1'
 
 /**
  * Converts a BigInt matrix to a number matrix for display and processing.
@@ -903,6 +904,7 @@ function App() {
               </AlertDescription>
             </Alert>
             <BlockchairDataImport />
+            <UrlListStreamToD1 />
             <BlockchairUpload onSignaturesExtracted={handleBlockchairSignatures} />
             <AddressLookup onAttackGenerated={handleAddressAttack} />
             <DataUpload onDataParsed={handleDataParsed} />
