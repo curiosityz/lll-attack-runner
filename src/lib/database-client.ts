@@ -16,7 +16,7 @@
  * - Cloudflare D1 (serverless SQLite)
  */
 
-import { ExtractedSignature } from './blockchair-parser'
+import { ExtractedSignature, BlockchairInput, BlockchairOutput, BlockchairTransaction } from './blockchair-parser'
 import { ParsedSignature } from './dataParser'
 
 // ============================================================================
@@ -328,6 +328,7 @@ export class DatabaseClient {
 
       case 'cloudflare-d1':
         return `
+          -- Signatures table (extracted ECDSA signatures for vulnerability analysis)
           CREATE TABLE IF NOT EXISTS crypto_signatures (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             r_value TEXT NOT NULL,
@@ -349,10 +350,79 @@ export class DatabaseClient {
             r_leading_zeros INTEGER NOT NULL DEFAULT 0,
             vulnerability_severity TEXT NOT NULL
           );
-          CREATE INDEX IF NOT EXISTS idx_r_value ON crypto_signatures(r_value);
-          CREATE INDEX IF NOT EXISTS idx_block_id ON crypto_signatures(block_id);
-          CREATE INDEX IF NOT EXISTS idx_timestamp ON crypto_signatures(timestamp);
-          CREATE INDEX IF NOT EXISTS idx_vulnerability ON crypto_signatures(vulnerability_severity);
+          CREATE INDEX IF NOT EXISTS idx_sig_r_value ON crypto_signatures(r_value);
+          CREATE INDEX IF NOT EXISTS idx_sig_block_id ON crypto_signatures(block_id);
+          CREATE INDEX IF NOT EXISTS idx_sig_timestamp ON crypto_signatures(timestamp);
+          CREATE INDEX IF NOT EXISTS idx_sig_vulnerability ON crypto_signatures(vulnerability_severity);
+          CREATE INDEX IF NOT EXISTS idx_sig_tx_hash ON crypto_signatures(tx_hash);
+
+          -- Inputs table (spending data with script signatures)
+          CREATE TABLE IF NOT EXISTS bitcoin_inputs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            block_id INTEGER NOT NULL,
+            tx_hash TEXT NOT NULL,
+            input_index INTEGER NOT NULL,
+            timestamp INTEGER NOT NULL,
+            value_satoshis TEXT NOT NULL,
+            recipient TEXT,
+            type TEXT,
+            script_hex TEXT,
+            spending_signature_hex TEXT,
+            spending_witness_hex TEXT,
+            spending_sequence INTEGER,
+            spending_n_locktime INTEGER,
+            prev_out_hash TEXT,
+            prev_out_index INTEGER
+          );
+          CREATE INDEX IF NOT EXISTS idx_input_block_id ON bitcoin_inputs(block_id);
+          CREATE INDEX IF NOT EXISTS idx_input_tx_hash ON bitcoin_inputs(tx_hash);
+          CREATE INDEX IF NOT EXISTS idx_input_timestamp ON bitcoin_inputs(timestamp);
+          CREATE INDEX IF NOT EXISTS idx_input_recipient ON bitcoin_inputs(recipient);
+
+          -- Outputs table (locking scripts and amounts)
+          CREATE TABLE IF NOT EXISTS bitcoin_outputs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            block_id INTEGER NOT NULL,
+            tx_hash TEXT NOT NULL,
+            output_index INTEGER NOT NULL,
+            timestamp INTEGER NOT NULL,
+            value_satoshis TEXT NOT NULL,
+            recipient TEXT,
+            type TEXT,
+            script_pub_key_hex TEXT,
+            is_spent INTEGER NOT NULL DEFAULT 0,
+            spending_tx_hash TEXT,
+            spending_block_id INTEGER,
+            spending_input_index INTEGER
+          );
+          CREATE INDEX IF NOT EXISTS idx_output_block_id ON bitcoin_outputs(block_id);
+          CREATE INDEX IF NOT EXISTS idx_output_tx_hash ON bitcoin_outputs(tx_hash);
+          CREATE INDEX IF NOT EXISTS idx_output_timestamp ON bitcoin_outputs(timestamp);
+          CREATE INDEX IF NOT EXISTS idx_output_recipient ON bitcoin_outputs(recipient);
+          CREATE INDEX IF NOT EXISTS idx_output_is_spent ON bitcoin_outputs(is_spent);
+
+          -- Transactions table (graph glue - connects inputs to outputs)
+          CREATE TABLE IF NOT EXISTS bitcoin_transactions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            block_id INTEGER NOT NULL,
+            tx_hash TEXT NOT NULL UNIQUE,
+            timestamp INTEGER NOT NULL,
+            size INTEGER NOT NULL,
+            weight INTEGER NOT NULL,
+            version INTEGER NOT NULL,
+            lock_time INTEGER NOT NULL,
+            is_coinbase INTEGER NOT NULL DEFAULT 0,
+            has_witness INTEGER NOT NULL DEFAULT 0,
+            input_count INTEGER NOT NULL,
+            output_count INTEGER NOT NULL,
+            input_total TEXT NOT NULL,
+            output_total TEXT NOT NULL,
+            fee TEXT NOT NULL
+          );
+          CREATE INDEX IF NOT EXISTS idx_tx_block_id ON bitcoin_transactions(block_id);
+          CREATE INDEX IF NOT EXISTS idx_tx_hash ON bitcoin_transactions(tx_hash);
+          CREATE INDEX IF NOT EXISTS idx_tx_timestamp ON bitcoin_transactions(timestamp);
+          CREATE INDEX IF NOT EXISTS idx_tx_is_coinbase ON bitcoin_transactions(is_coinbase);
         `
 
       case 'influxdb':
@@ -520,6 +590,234 @@ export class DatabaseClient {
   }> {
     const records = signatures.map(sig => this.convertParsedToRecord(sig))
     return this.streamRecords(records)
+  }
+
+  /**
+   * Safely parse a timestamp string to Unix milliseconds
+   * Handles various date formats from Blockchair data
+   */
+  private parseTimestamp(timeStr: string | undefined | null): number {
+    if (!timeStr) return 0
+    try {
+      const timestamp = new Date(timeStr).getTime()
+      return isNaN(timestamp) ? 0 : timestamp
+    } catch {
+      return 0
+    }
+  }
+
+  /**
+   * Stream a batch of BlockchairInputs to the database
+   */
+  async streamInputs(inputs: BlockchairInput[]): Promise<{
+    success: boolean
+    count: number
+    errors: string[]
+  }> {
+    if (inputs.length === 0) {
+      return { success: true, count: 0, errors: [] }
+    }
+
+    if (this.config.type !== 'cloudflare-d1') {
+      return { success: false, count: 0, errors: ['streamInputs only supports Cloudflare D1'] }
+    }
+
+    const errors: string[] = []
+    let successCount = 0
+
+    try {
+      const statements = inputs.map(input => ({
+        sql: `INSERT INTO bitcoin_inputs (
+          block_id, tx_hash, input_index, timestamp, value_satoshis,
+          recipient, type, script_hex, spending_signature_hex, spending_witness_hex,
+          spending_sequence, spending_n_locktime, prev_out_hash, prev_out_index
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        params: [
+          input.blockId,
+          input.transactionHash,
+          input.index,
+          this.parseTimestamp(input.time),
+          input.value.toString(),
+          input.recipient || null,
+          input.type || null,
+          input.scriptHex || null,
+          input.spendingSignatureHex || null,
+          input.spendingWitnessHex || null,
+          input.spendingSequence || null,
+          input.spendingNLocktime || null,
+          input.spendingTransactionHash || null,
+          input.spendingIndex || null
+        ]
+      }))
+
+      // D1 has a limit on batch size
+      for (let i = 0; i < statements.length; i += D1_BATCH_SIZE) {
+        const chunk = statements.slice(i, i + D1_BATCH_SIZE)
+        const response = await fetch(`${this.getBaseUrl()}/query`, {
+          method: 'POST',
+          headers: this.getAuthHeaders(),
+          body: JSON.stringify(chunk)
+        })
+
+        if (response.ok) {
+          successCount += chunk.length
+        } else {
+          const errorText = await response.text()
+          errors.push(`D1 inputs write error: ${errorText}`)
+        }
+      }
+
+      this.stats.totalStreamed += inputs.length
+      this.stats.successCount += successCount
+
+      return { success: successCount > 0, count: successCount, errors }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error'
+      errors.push(`Stream inputs error: ${message}`)
+      return { success: false, count: 0, errors }
+    }
+  }
+
+  /**
+   * Stream a batch of BlockchairOutputs to the database
+   */
+  async streamOutputs(outputs: BlockchairOutput[]): Promise<{
+    success: boolean
+    count: number
+    errors: string[]
+  }> {
+    if (outputs.length === 0) {
+      return { success: true, count: 0, errors: [] }
+    }
+
+    if (this.config.type !== 'cloudflare-d1') {
+      return { success: false, count: 0, errors: ['streamOutputs only supports Cloudflare D1'] }
+    }
+
+    const errors: string[] = []
+    let successCount = 0
+
+    try {
+      const statements = outputs.map(output => ({
+        sql: `INSERT INTO bitcoin_outputs (
+          block_id, tx_hash, output_index, timestamp, value_satoshis,
+          recipient, type, script_pub_key_hex, is_spent,
+          spending_tx_hash, spending_block_id, spending_input_index
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        params: [
+          output.blockId,
+          output.transactionHash,
+          output.index,
+          this.parseTimestamp(output.time),
+          output.value.toString(),
+          output.recipient || null,
+          output.type || null,
+          output.scriptPubKeyHex || null,
+          output.isSpent ? 1 : 0,
+          output.spendingTransactionHash || null,
+          output.spendingBlockId || null,
+          output.spendingIndex || null
+        ]
+      }))
+
+      // D1 has a limit on batch size
+      for (let i = 0; i < statements.length; i += D1_BATCH_SIZE) {
+        const chunk = statements.slice(i, i + D1_BATCH_SIZE)
+        const response = await fetch(`${this.getBaseUrl()}/query`, {
+          method: 'POST',
+          headers: this.getAuthHeaders(),
+          body: JSON.stringify(chunk)
+        })
+
+        if (response.ok) {
+          successCount += chunk.length
+        } else {
+          const errorText = await response.text()
+          errors.push(`D1 outputs write error: ${errorText}`)
+        }
+      }
+
+      this.stats.totalStreamed += outputs.length
+      this.stats.successCount += successCount
+
+      return { success: successCount > 0, count: successCount, errors }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error'
+      errors.push(`Stream outputs error: ${message}`)
+      return { success: false, count: 0, errors }
+    }
+  }
+
+  /**
+   * Stream a batch of BlockchairTransactions to the database
+   */
+  async streamTransactions(transactions: BlockchairTransaction[]): Promise<{
+    success: boolean
+    count: number
+    errors: string[]
+  }> {
+    if (transactions.length === 0) {
+      return { success: true, count: 0, errors: [] }
+    }
+
+    if (this.config.type !== 'cloudflare-d1') {
+      return { success: false, count: 0, errors: ['streamTransactions only supports Cloudflare D1'] }
+    }
+
+    const errors: string[] = []
+    let successCount = 0
+
+    try {
+      const statements = transactions.map(tx => ({
+        sql: `INSERT OR IGNORE INTO bitcoin_transactions (
+          block_id, tx_hash, timestamp, size, weight, version, lock_time,
+          is_coinbase, has_witness, input_count, output_count,
+          input_total, output_total, fee
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        params: [
+          tx.blockId,
+          tx.hash,
+          this.parseTimestamp(tx.time),
+          tx.size,
+          tx.weight,
+          tx.version,
+          tx.lockTime,
+          tx.isCoinbase ? 1 : 0,
+          tx.hasWitness ? 1 : 0,
+          tx.inputCount,
+          tx.outputCount,
+          tx.inputTotal.toString(),
+          tx.outputTotal.toString(),
+          tx.fee.toString()
+        ]
+      }))
+
+      // D1 has a limit on batch size
+      for (let i = 0; i < statements.length; i += D1_BATCH_SIZE) {
+        const chunk = statements.slice(i, i + D1_BATCH_SIZE)
+        const response = await fetch(`${this.getBaseUrl()}/query`, {
+          method: 'POST',
+          headers: this.getAuthHeaders(),
+          body: JSON.stringify(chunk)
+        })
+
+        if (response.ok) {
+          successCount += chunk.length
+        } else {
+          const errorText = await response.text()
+          errors.push(`D1 transactions write error: ${errorText}`)
+        }
+      }
+
+      this.stats.totalStreamed += transactions.length
+      this.stats.successCount += successCount
+
+      return { success: successCount > 0, count: successCount, errors }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error'
+      errors.push(`Stream transactions error: ${message}`)
+      return { success: false, count: 0, errors }
+    }
   }
 
   /**
