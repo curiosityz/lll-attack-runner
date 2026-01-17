@@ -55,10 +55,13 @@ interface StreamStats {
   vulnerabilitiesFound: number
   errors: string[]
   skippedFiles: number
-  bytesDownloaded: number
   startTime: number
   elapsedMs: number
 }
+
+// Constants for limits
+const MAX_RECENT_FILES = 20
+const MAX_ERRORS_STORED = 50
 
 interface FileStatus {
   url: string
@@ -251,7 +254,6 @@ export function UrlListStreamToD1() {
       vulnerabilitiesFound: 0,
       errors: [],
       skippedFiles: 0,
-      bytesDownloaded: 0,
       startTime: Date.now(),
       elapsedMs: 0
     }
@@ -277,7 +279,7 @@ export function UrlListStreamToD1() {
         // Add to recent files
         setRecentFiles(prev => {
           const next = [...prev, fileStatus]
-          return next.slice(-20) // Keep last 20
+          return next.slice(-MAX_RECENT_FILES)
         })
         
         const updateStatus = (update: Partial<FileStatus>) => {
@@ -357,7 +359,7 @@ export function UrlListStreamToD1() {
               return {
                 ...prev,
                 processedUrls: prev.processedUrls + 1,
-                errors: [...prev.errors.slice(-50), `${file.url}: ${errorMsg}`],
+                errors: [...prev.errors.slice(-MAX_ERRORS_STORED), `${file.url}: ${errorMsg}`],
                 elapsedMs: Date.now() - prev.startTime
               }
             })
@@ -373,23 +375,21 @@ export function UrlListStreamToD1() {
     
     await Promise.all(inProgress)
     
-    // Final stats update
+    // Final stats update and completion toast
     setStats(prev => {
       if (!prev) return prev
-      return {
+      const finalStats = {
         ...prev,
         elapsedMs: Date.now() - prev.startTime
       }
-    })
-    
-    setIsStreaming(false)
-    
-    const finalStats = stats
-    if (finalStats) {
+      // Show completion toast with final stats
       toast.success('Streaming complete!', {
         description: `${finalStats.signaturesStreamed.toLocaleString()} signatures streamed to Cloudflare D1`
       })
-    }
+      return finalStats
+    })
+    
+    setIsStreaming(false)
   }
   
   // Format helpers
