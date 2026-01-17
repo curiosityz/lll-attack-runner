@@ -41,7 +41,15 @@ import pako from 'pako'
 import {
   parseBlockchairTSV,
   detectBlockchairFileType,
-  ExtractedSignature
+  ExtractedSignature,
+  parseInputsTSV,
+  parseOutputsTSV,
+  parseTransactionsTSV,
+  extractSignaturesFromInputs,
+  analyzeSignaturesForVulnerabilities,
+  BlockchairInput,
+  BlockchairOutput,
+  BlockchairTransaction
 } from '@/lib/blockchair-parser'
 import { getDatabaseClient } from '@/lib/database-client'
 import { fetchWithCORSProxy } from '@/lib/cors-proxy'
@@ -50,9 +58,14 @@ import { parseUrlListFile, DataType } from '@/lib/blockchair-importer'
 interface StreamStats {
   totalUrls: number
   processedUrls: number
+  // Signature stats (from inputs)
   signaturesExtracted: number
   signaturesStreamed: number
   vulnerabilitiesFound: number
+  // Raw data stats
+  inputsStreamed: number
+  outputsStreamed: number
+  transactionsStreamed: number
   errors: string[]
   skippedFiles: number
   startTime: number
@@ -67,7 +80,7 @@ interface FileStatus {
   url: string
   status: 'pending' | 'downloading' | 'processing' | 'streaming' | 'complete' | 'error' | 'skipped'
   progress: number
-  signatures?: number
+  records?: number // Generic record count (signatures, inputs, outputs, or transactions)
   error?: string
 }
 
@@ -84,10 +97,10 @@ export function UrlListStreamToD1() {
   const [recentFiles, setRecentFiles] = useState<FileStatus[]>([])
   const [dbConnected, setDbConnected] = useState(false)
   
-  // Options
+  // Options - all three types enabled by default for comprehensive security analysis
   const [streamInputs, setStreamInputs] = useState(true)
-  const [streamOutputs, setStreamOutputs] = useState(false)
-  const [streamTransactions, setStreamTransactions] = useState(false)
+  const [streamOutputs, setStreamOutputs] = useState(true)
+  const [streamTransactions, setStreamTransactions] = useState(true)
   const [concurrency, setConcurrency] = useState(3)
   const [maxFiles, setMaxFiles] = useState(0) // 0 = unlimited
   
@@ -187,12 +200,22 @@ export function UrlListStreamToD1() {
     return new TextDecoder().decode(arrayBuffer)
   }
   
-  // Process a single file and extract signatures
+  // Process result type for different file types
+  interface ProcessResult {
+    type: 'inputs' | 'outputs' | 'transactions'
+    signatures?: ExtractedSignature[]
+    inputs?: BlockchairInput[]
+    outputs?: BlockchairOutput[]
+    transactions?: BlockchairTransaction[]
+    vulnerabilities?: number
+  }
+  
+  // Process a single file based on its data type
   const processFile = async (
     url: string, 
     dataType: string,
     updateStatus: (status: Partial<FileStatus>) => void
-  ): Promise<ExtractedSignature[]> => {
+  ): Promise<ProcessResult> => {
     updateStatus({ status: 'downloading', progress: 10 })
     
     let content: string
@@ -213,16 +236,44 @@ export function UrlListStreamToD1() {
       ? dataType as 'inputs' | 'outputs' | 'transactions'
       : detectedType !== 'unknown' ? detectedType : 'inputs'
     
-    // Parse and extract signatures
-    const result = parseBlockchairTSV(content, fileType)
+    // Parse based on file type
+    let result: ProcessResult
     
-    updateStatus({ 
-      status: 'streaming', 
-      progress: 80,
-      signatures: result.signatures.length 
-    })
+    switch (fileType) {
+      case 'inputs': {
+        const inputs = parseInputsTSV(content)
+        // Also extract signatures for vulnerability analysis
+        const signatures = extractSignaturesFromInputs(inputs)
+        // Analyze for vulnerabilities
+        const vulnAnalysis = analyzeSignaturesForVulnerabilities(signatures)
+        const vulnCount = vulnAnalysis.nonceReuse.size + vulnAnalysis.biasedNonces.length + 
+                         vulnAnalysis.smallR.length + vulnAnalysis.relatedNonces.length
+        
+        result = { 
+          type: 'inputs', 
+          inputs, 
+          signatures, 
+          vulnerabilities: vulnCount 
+        }
+        break
+      }
+      case 'outputs': {
+        const outputs = parseOutputsTSV(content)
+        result = { type: 'outputs', outputs }
+        break
+      }
+      case 'transactions': {
+        const transactions = parseTransactionsTSV(content)
+        result = { type: 'transactions', transactions }
+        break
+      }
+      default:
+        throw new Error(`Unknown file type: ${fileType}`)
+    }
     
-    return result.signatures
+    updateStatus({ status: 'streaming', progress: 80 })
+    
+    return result
   }
   
   // Main streaming function
@@ -252,6 +303,9 @@ export function UrlListStreamToD1() {
       signaturesExtracted: 0,
       signaturesStreamed: 0,
       vulnerabilitiesFound: 0,
+      inputsStreamed: 0,
+      outputsStreamed: 0,
+      transactionsStreamed: 0,
       errors: [],
       skippedFiles: 0,
       startTime: Date.now(),
@@ -295,48 +349,82 @@ export function UrlListStreamToD1() {
         }
         
         try {
-          const signatures = await processFile(file.url, file.dataType, updateStatus)
+          const result = await processFile(file.url, file.dataType, updateStatus)
           
-          if (signatures.length > 0) {
-            // Stream to D1
-            const streamResult = await dbClient.streamSignatures(signatures)
-            
-            // Count vulnerabilities
-            let vulnCount = 0
-            for (const sig of signatures) {
-              vulnCount += sig.vulnerabilities.length
+          // Stream based on data type
+          let recordCount = 0
+          
+          switch (result.type) {
+            case 'inputs': {
+              // Stream raw inputs
+              if (result.inputs && result.inputs.length > 0) {
+                const inputResult = await dbClient.streamInputs(result.inputs)
+                recordCount = inputResult.count
+              }
+              // Also stream extracted signatures
+              if (result.signatures && result.signatures.length > 0) {
+                const sigResult = await dbClient.streamSignatures(result.signatures)
+                
+                setStats(prev => {
+                  if (!prev) return prev
+                  return {
+                    ...prev,
+                    signaturesExtracted: prev.signaturesExtracted + (result.signatures?.length || 0),
+                    signaturesStreamed: prev.signaturesStreamed + sigResult.count,
+                    vulnerabilitiesFound: prev.vulnerabilitiesFound + (result.vulnerabilities || 0),
+                    inputsStreamed: prev.inputsStreamed + recordCount
+                  }
+                })
+              }
+              break
             }
-            
-            // Update stats
-            setStats(prev => {
-              if (!prev) return prev
-              return {
-                ...prev,
-                processedUrls: prev.processedUrls + 1,
-                signaturesExtracted: prev.signaturesExtracted + signatures.length,
-                signaturesStreamed: prev.signaturesStreamed + streamResult.count,
-                vulnerabilitiesFound: prev.vulnerabilitiesFound + vulnCount,
-                elapsedMs: Date.now() - prev.startTime
+            case 'outputs': {
+              if (result.outputs && result.outputs.length > 0) {
+                const outputResult = await dbClient.streamOutputs(result.outputs)
+                recordCount = outputResult.count
+                
+                setStats(prev => {
+                  if (!prev) return prev
+                  return {
+                    ...prev,
+                    outputsStreamed: prev.outputsStreamed + recordCount
+                  }
+                })
               }
-            })
-            
-            updateStatus({ 
-              status: 'complete', 
-              progress: 100,
-              signatures: streamResult.count
-            })
-          } else {
-            // No signatures (e.g., outputs or transactions files)
-            updateStatus({ status: 'complete', progress: 100, signatures: 0 })
-            setStats(prev => {
-              if (!prev) return prev
-              return {
-                ...prev,
-                processedUrls: prev.processedUrls + 1,
-                elapsedMs: Date.now() - prev.startTime
+              break
+            }
+            case 'transactions': {
+              if (result.transactions && result.transactions.length > 0) {
+                const txResult = await dbClient.streamTransactions(result.transactions)
+                recordCount = txResult.count
+                
+                setStats(prev => {
+                  if (!prev) return prev
+                  return {
+                    ...prev,
+                    transactionsStreamed: prev.transactionsStreamed + recordCount
+                  }
+                })
               }
-            })
+              break
+            }
           }
+          
+          // Update processed count
+          setStats(prev => {
+            if (!prev) return prev
+            return {
+              ...prev,
+              processedUrls: prev.processedUrls + 1,
+              elapsedMs: Date.now() - prev.startTime
+            }
+          })
+          
+          updateStatus({ 
+            status: 'complete', 
+            progress: 100,
+            records: recordCount
+          })
         } catch (error) {
           const errorMsg = error instanceof Error ? error.message : 'Unknown error'
           
@@ -383,8 +471,10 @@ export function UrlListStreamToD1() {
         elapsedMs: Date.now() - prev.startTime
       }
       // Show completion toast with final stats
+      const totalRecords = finalStats.inputsStreamed + finalStats.outputsStreamed + 
+                          finalStats.transactionsStreamed + finalStats.signaturesStreamed
       toast.success('Streaming complete!', {
-        description: `${finalStats.signaturesStreamed.toLocaleString()} signatures streamed to Cloudflare D1`
+        description: `${totalRecords.toLocaleString()} total records streamed to Cloudflare D1`
       })
       return finalStats
     })
@@ -439,7 +529,7 @@ export function UrlListStreamToD1() {
           <div>
             <h2 className="text-lg font-bold">Stream URLs to Cloudflare D1</h2>
             <p className="text-sm text-muted-foreground">
-              Download files from dl-urls.txt and stream signatures to D1
+              Download blockchain data and stream to D1 for security analysis
             </p>
           </div>
         </div>
@@ -510,7 +600,7 @@ export function UrlListStreamToD1() {
                 onCheckedChange={(checked) => setStreamInputs(!!checked)}
                 disabled={isStreaming}
               />
-              <span className="text-sm">Inputs (signatures)</span>
+              <span className="text-sm">Inputs (signatures + scripts)</span>
             </label>
             <label className="flex items-center gap-2 cursor-pointer">
               <Checkbox
@@ -518,7 +608,7 @@ export function UrlListStreamToD1() {
                 onCheckedChange={(checked) => setStreamOutputs(!!checked)}
                 disabled={isStreaming}
               />
-              <span className="text-sm">Outputs</span>
+              <span className="text-sm">Outputs (addresses + amounts)</span>
             </label>
             <label className="flex items-center gap-2 cursor-pointer">
               <Checkbox
@@ -526,7 +616,7 @@ export function UrlListStreamToD1() {
                 onCheckedChange={(checked) => setStreamTransactions(!!checked)}
                 disabled={isStreaming}
               />
-              <span className="text-sm">Transactions</span>
+              <span className="text-sm">Transactions (graph links)</span>
             </label>
           </div>
         </div>
@@ -630,25 +720,47 @@ export function UrlListStreamToD1() {
             <Progress value={overallProgress} className="h-2" />
           </div>
           
-          {/* Stats Grid */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+          {/* Stats Grid - First Row: Data Types */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-2">
+            <div className="p-3 rounded-lg bg-card/50 border border-border/50">
+              <div className="text-xl font-bold text-accent">
+                {stats.inputsStreamed.toLocaleString()}
+              </div>
+              <div className="text-xs text-muted-foreground">Inputs</div>
+            </div>
             <div className="p-3 rounded-lg bg-card/50 border border-border/50">
               <div className="text-xl font-bold text-primary">
-                {stats.signaturesExtracted.toLocaleString()}
+                {stats.outputsStreamed.toLocaleString()}
               </div>
-              <div className="text-xs text-muted-foreground">Extracted</div>
+              <div className="text-xs text-muted-foreground">Outputs</div>
+            </div>
+            <div className="p-3 rounded-lg bg-card/50 border border-border/50">
+              <div className="text-xl font-bold text-success">
+                {stats.transactionsStreamed.toLocaleString()}
+              </div>
+              <div className="text-xs text-muted-foreground">Transactions</div>
             </div>
             <div className="p-3 rounded-lg bg-card/50 border border-border/50">
               <div className="text-xl font-bold text-blue-500">
                 {stats.signaturesStreamed.toLocaleString()}
               </div>
-              <div className="text-xs text-muted-foreground">Streamed to D1</div>
+              <div className="text-xs text-muted-foreground">Signatures</div>
             </div>
+          </div>
+          
+          {/* Stats Grid - Second Row: Analysis */}
+          <div className="grid grid-cols-3 gap-3 mb-4">
             <div className="p-3 rounded-lg bg-card/50 border border-border/50">
               <div className="text-xl font-bold text-warning">
                 {stats.vulnerabilitiesFound.toLocaleString()}
               </div>
               <div className="text-xs text-muted-foreground">Vulnerabilities</div>
+            </div>
+            <div className="p-3 rounded-lg bg-card/50 border border-border/50">
+              <div className="text-xl font-bold text-muted-foreground">
+                {stats.skippedFiles.toLocaleString()}
+              </div>
+              <div className="text-xs text-muted-foreground">Skipped (404)</div>
             </div>
             <div className="p-3 rounded-lg bg-card/50 border border-border/50">
               <div className="text-xl font-bold text-success">
@@ -673,8 +785,8 @@ export function UrlListStreamToD1() {
                       {file.url.split('/').pop()}
                     </span>
                     <span className={getStatusColor(file.status)}>
-                      {file.status === 'complete' && file.signatures !== undefined
-                        ? `${file.signatures} sigs`
+                      {file.status === 'complete' && file.records !== undefined
+                        ? `${file.records} records`
                         : file.status}
                     </span>
                     {file.error && (
@@ -693,15 +805,10 @@ export function UrlListStreamToD1() {
             </ScrollArea>
           </div>
           
-          {/* Error/Skip Summary */}
-          {(stats.errors.length > 0 || stats.skippedFiles > 0) && (
-            <div className="text-xs text-muted-foreground">
-              {stats.skippedFiles > 0 && (
-                <span className="mr-3">Skipped (404): {stats.skippedFiles}</span>
-              )}
-              {stats.errors.length > 0 && (
-                <span className="text-destructive">Errors: {stats.errors.length}</span>
-              )}
+          {/* Error Summary */}
+          {stats.errors.length > 0 && (
+            <div className="text-xs text-destructive">
+              Errors: {stats.errors.length}
             </div>
           )}
         </>
@@ -713,12 +820,15 @@ export function UrlListStreamToD1() {
           <Lightning size={16} className="text-blue-500 mt-0.5 flex-shrink-0" weight="duotone" />
           <div className="text-xs text-muted-foreground space-y-1">
             <p>
-              <strong>Important:</strong> Only <strong>inputs</strong> files contain ECDSA signatures.
-              Outputs and transactions files provide context data but no extractable signatures.
+              <strong>Security Database:</strong> All three data types are needed for comprehensive analysis:
             </p>
-            <p>
-              <strong>Tip:</strong> Start with a small batch (set Max Files) to test the connection,
-              then process larger batches.
+            <ul className="list-disc ml-4 space-y-0.5">
+              <li><strong>Inputs</strong> - Signatures (R, S values), script data for nonce reuse detection</li>
+              <li><strong>Outputs</strong> - Target addresses, amounts, script types for vulnerability scanning</li>
+              <li><strong>Transactions</strong> - Graph structure linking inputs to outputs for taint analysis</li>
+            </ul>
+            <p className="mt-1">
+              <strong>Tip:</strong> Start with a small batch (set Max Files) to test, then process larger batches.
             </p>
           </div>
         </div>
