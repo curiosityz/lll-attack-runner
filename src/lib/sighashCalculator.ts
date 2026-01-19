@@ -111,10 +111,9 @@ async function doubleSha256(data: Uint8Array): Promise<Uint8Array> {
 
 /**
  * Use the proper keccak256 implementation from crypto-utils
+ * Note: We alias it to avoid confusion and for potential future flexibility
  */
-function keccak256(data: Uint8Array): Uint8Array {
-  return keccak256Crypto(data)
-}
+const keccak256 = keccak256Crypto
 
 // ============================================================================
 // RLP Encoding Helpers (improved)
@@ -667,6 +666,20 @@ export function getSighashTypeName(hashType: number): string {
 // Transaction Extraction and Decoding
 // ============================================================================
 
+/**
+ * Safely parse a decoded Uint8Array to an integer
+ * Returns defaultValue (0) if the array is empty or invalid
+ */
+function safeParseDecodedInt(decoded: any, defaultValue: number = 0): number {
+  if (!decoded) return defaultValue
+  const bytes = decoded as Uint8Array
+  if (bytes.length === 0) return defaultValue
+  const hex = bytesToHex(bytes)
+  if (hex === '0x' || hex === '0x0' || hex === '0x00') return defaultValue
+  const parsed = parseInt(hex, 16)
+  return isNaN(parsed) ? defaultValue : parsed
+}
+
 export async function extractSighashFromRawTx(rawTxHex: string): Promise<TransactionWithSighash> {
   const txBytes = hexToBytes(rawTxHex)
   
@@ -779,8 +792,8 @@ function decodeTypedEthereumTransaction(rawTx: string): any {
     
     return {
       type: 2,
-      chainId: decoded[0] ? parseInt(bytesToHex(decoded[0] as Uint8Array), 16) : 1,
-      nonce: decoded[1] ? parseInt(bytesToHex(decoded[1] as Uint8Array), 16) : 0,
+      chainId: safeParseDecodedInt(decoded[0], 1),
+      nonce: safeParseDecodedInt(decoded[1]),
       maxPriorityFeePerGas: bytesToHex(decoded[2] as Uint8Array),
       maxFeePerGas: bytesToHex(decoded[3] as Uint8Array),
       gasLimit: bytesToHex(decoded[4] as Uint8Array),
@@ -788,7 +801,7 @@ function decodeTypedEthereumTransaction(rawTx: string): any {
       value: bytesToHex(decoded[6] as Uint8Array),
       data: bytesToHex(decoded[7] as Uint8Array),
       accessList: decoded[8] || [],
-      v: decoded[9] ? parseInt(bytesToHex(decoded[9] as Uint8Array), 16) : 0,
+      v: safeParseDecodedInt(decoded[9]),
       r: bytesToHex(decoded[10] as Uint8Array),
       s: bytesToHex(decoded[11] as Uint8Array),
     }
@@ -800,15 +813,15 @@ function decodeTypedEthereumTransaction(rawTx: string): any {
     
     return {
       type: 1,
-      chainId: decoded[0] ? parseInt(bytesToHex(decoded[0] as Uint8Array), 16) : 1,
-      nonce: decoded[1] ? parseInt(bytesToHex(decoded[1] as Uint8Array), 16) : 0,
+      chainId: safeParseDecodedInt(decoded[0], 1),
+      nonce: safeParseDecodedInt(decoded[1]),
       gasPrice: bytesToHex(decoded[2] as Uint8Array),
       gasLimit: bytesToHex(decoded[3] as Uint8Array),
       to: bytesToHex(decoded[4] as Uint8Array),
       value: bytesToHex(decoded[5] as Uint8Array),
       data: bytesToHex(decoded[6] as Uint8Array),
       accessList: decoded[7] || [],
-      v: decoded[8] ? parseInt(bytesToHex(decoded[8] as Uint8Array), 16) : 0,
+      v: safeParseDecodedInt(decoded[8]),
       r: bytesToHex(decoded[9] as Uint8Array),
       s: bytesToHex(decoded[10] as Uint8Array),
     }
@@ -826,16 +839,16 @@ function decodeRLPTransaction(rawTx: string): any {
   }
   
   return {
-    nonce: decoded[0] && (decoded[0] as Uint8Array).length > 0 ? parseInt(bytesToHex(decoded[0] as Uint8Array), 16) : 0,
+    nonce: safeParseDecodedInt(decoded[0]),
     gasPrice: bytesToHex(decoded[1] as Uint8Array),
     gasLimit: bytesToHex(decoded[2] as Uint8Array),
     to: bytesToHex(decoded[3] as Uint8Array),
     value: bytesToHex(decoded[4] as Uint8Array),
     data: bytesToHex(decoded[5] as Uint8Array),
-    v: decoded[6] && (decoded[6] as Uint8Array).length > 0 ? parseInt(bytesToHex(decoded[6] as Uint8Array), 16) : 0,
+    v: safeParseDecodedInt(decoded[6]),
     r: bytesToHex(decoded[7] as Uint8Array),
     s: bytesToHex(decoded[8] as Uint8Array),
-    chainId: decoded.length > 9 && decoded[9] ? parseInt(bytesToHex(decoded[9] as Uint8Array), 16) : undefined
+    chainId: decoded.length > 9 && decoded[9] ? safeParseDecodedInt(decoded[9]) : undefined
   }
 }
 

@@ -112,6 +112,13 @@ interface SignaturePatternAnalysis {
 const SECP256K1_N = BigInt('0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141')
 
 /**
+ * Normalize a hex string to have '0x' prefix
+ */
+function normalizeHex(hex: string): string {
+  return hex.startsWith('0x') ? hex : '0x' + hex
+}
+
+/**
  * Analyze signature patterns to determine the best attack strategy
  */
 export function analyzeSignaturePatterns(signatures: ParsedSignature[]): SignaturePatternAnalysis {
@@ -288,8 +295,8 @@ async function executeNonceReuseAttack(
   
   try {
     // Extract z values (message hashes)
-    const z1 = BigInt(sig1.hash.startsWith('0x') ? sig1.hash : '0x' + sig1.hash)
-    const z2 = BigInt(sig2.hash.startsWith('0x') ? sig2.hash : '0x' + sig2.hash)
+    const z1 = BigInt(normalizeHex(sig1.hash))
+    const z2 = BigInt(normalizeHex(sig2.hash))
     
     // Calculate k from nonce reuse
     const zDiff = ((z1 - z2) % SECP256K1_N + SECP256K1_N) % SECP256K1_N

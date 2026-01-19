@@ -149,10 +149,17 @@ export function UnifiedAttackRunner({
   }, [signatures, targetAddress, onKeyFound])
 
   const handleStop = useCallback(() => {
-    // Note: In a real implementation, we'd need to implement cancellation
+    // Stop tracking the attack progress - the actual computation will complete
+    // but results won't be processed after stopping
     setIsRunning(false)
-    setProgress(null)
-    toast.info('Attack stopped')
+    setProgress({
+      phase: 'failed',
+      message: 'Attack stopped by user',
+      progress: 0
+    })
+    toast.info('Attack tracking stopped', {
+      description: 'Any running computation will complete in the background'
+    })
   }, [])
 
   return (
