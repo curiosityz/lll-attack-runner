@@ -6,16 +6,22 @@ import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Alert, AlertDescription } from '@/components/ui/alert'
-import { Calculator, Copy, CheckCircle } from '@phosphor-icons/react'
+import { Calculator, Copy, CheckCircle, Info } from '@phosphor-icons/react'
 import { toast } from 'sonner'
 import { 
   extractSighashFromRawTx, 
   calculateSighashFromComponents,
   calculateEthereumSighash,
   calculateBitcoinSighash,
+  calculateSegwitSighash,
   validateSighash,
+  getSighashTypeName,
   TransactionWithSighash,
-  RawTransaction
+  RawTransaction,
+  SIGHASH_ALL,
+  SIGHASH_NONE,
+  SIGHASH_SINGLE,
+  SIGHASH_ANYONECANPAY
 } from '@/lib/sighashCalculator'
 
 export function SighashCalculator() {
@@ -119,19 +125,33 @@ export function SighashCalculator() {
   }
 
   return (
-    <div className="grid lg:grid-cols-2 gap-6">
-      <Card className="p-6 bg-card/80 backdrop-blur-sm border-border/60 shadow-lg">
-        <div className="flex items-center gap-3 mb-6">
-          <div className="p-2.5 bg-primary/15 rounded-lg border border-primary/30">
-            <Calculator size={24} className="text-primary" weight="duotone" />
+    <div className="space-y-6">
+      <Alert className="border-accent/50 bg-accent/10">
+        <Info size={18} className="text-accent" weight="duotone" />
+        <AlertDescription className="text-sm">
+          <strong>Supported Sighash Types:</strong>
+          <br />
+          <span className="text-xs text-muted-foreground">
+            <strong>Ethereum:</strong> Legacy, EIP-155, EIP-2930 (Type 1), EIP-1559 (Type 2)
+            <br />
+            <strong>Bitcoin:</strong> SIGHASH_ALL, SIGHASH_NONE, SIGHASH_SINGLE, ANYONECANPAY, BIP-143 SegWit
+          </span>
+        </AlertDescription>
+      </Alert>
+      
+      <div className="grid lg:grid-cols-2 gap-6">
+        <Card className="p-6 bg-card/80 backdrop-blur-sm border-border/60 shadow-lg">
+          <div className="flex items-center gap-3 mb-6">
+            <div className="p-2.5 bg-primary/15 rounded-lg border border-primary/30">
+              <Calculator size={24} className="text-primary" weight="duotone" />
+            </div>
+            <div>
+              <h2 className="text-xl font-bold">Sighash Calculator</h2>
+              <p className="text-sm text-muted-foreground">Calculate message hash (Z) from transaction data</p>
+            </div>
           </div>
-          <div>
-            <h2 className="text-xl font-bold">Sighash Calculator</h2>
-            <p className="text-sm text-muted-foreground">Calculate message hash (Z) from transaction data</p>
-          </div>
-        </div>
 
-        <div className="space-y-4">
+          <div className="space-y-4">
           <div>
             <Label className="text-sm font-medium mb-2 block">Calculation Mode</Label>
             <Select value={mode} onValueChange={(v) => setMode(v as any)}>
@@ -303,9 +323,17 @@ export function SighashCalculator() {
                 </div>
 
                 {result && result.txType && (
-                  <div className="p-3 bg-primary/10 rounded-lg border border-primary/30">
-                    <div className="text-xs text-muted-foreground mb-1">Transaction Type</div>
-                    <div className="font-bold text-primary capitalize">{result.txType}</div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="p-3 bg-primary/10 rounded-lg border border-primary/30">
+                      <div className="text-xs text-muted-foreground mb-1">Transaction Type</div>
+                      <div className="font-bold text-primary capitalize">{result.txType}</div>
+                    </div>
+                    {result.sigType && (
+                      <div className="p-3 bg-accent/10 rounded-lg border border-accent/30">
+                        <div className="text-xs text-muted-foreground mb-1">Signature Type</div>
+                        <div className="font-bold text-accent">{result.sigType}</div>
+                      </div>
+                    )}
                   </div>
                 )}
 
@@ -417,6 +445,7 @@ export function SighashCalculator() {
           </Card>
         )}
       </div>
+    </div>
     </div>
   )
 }
