@@ -10,7 +10,7 @@ import { Alert, AlertDescription } from '@/components/ui/alert'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Separator } from '@/components/ui/separator'
 import { Checkbox } from '@/components/ui/checkbox'
-import { Play, Lightbulb, Calculator, ListBullets, ChartLine, UploadSimple, Database, Function } from '@phosphor-icons/react'
+import { Play, Lightbulb, Calculator, ListBullets, ChartLine, UploadSimple, Database, Function, Lightning } from '@phosphor-icons/react'
 import { toast } from 'sonner'
 import { AttackHistory, AttackType, AttackTemplate, LLLStep, AlgorithmType } from '@/lib/types'
 import { runLLL, parseBasisFromString } from '@/lib/lll'
@@ -49,6 +49,7 @@ import { DatabaseConfigPanel } from '@/components/DatabaseConfigPanel'
 import { getDatabaseClient } from '@/lib/database-client'
 import { BlockchairDataImport } from '@/components/BlockchairDataImport'
 import { UrlListStreamToD1 } from '@/components/UrlListStreamToD1'
+import { UnifiedAttackRunner } from '@/components/UnifiedAttackRunner'
 
 /**
  * Converts a BigInt matrix to a number matrix for display and processing.
@@ -868,7 +869,7 @@ function App() {
         </header>
 
         <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
-          <TabsList className="grid w-full grid-cols-6 max-w-4xl h-auto p-1.5 bg-card/50 backdrop-blur-sm border border-border/60">
+          <TabsList className="grid w-full grid-cols-7 max-w-4xl h-auto p-1.5 bg-card/50 backdrop-blur-sm border border-border/60">
             <TabsTrigger value="upload" className="flex items-center justify-center gap-2 data-[state=active]:bg-primary/15 data-[state=active]:text-primary py-2.5 px-3">
               <UploadSimple size={18} weight="duotone" />
               <span className="hidden sm:inline">Upload</span>
@@ -877,13 +878,17 @@ function App() {
               <Database size={18} weight="duotone" />
               <span className="hidden sm:inline">Analyze</span>
             </TabsTrigger>
+            <TabsTrigger value="quick-attack" className="flex items-center justify-center gap-2 data-[state=active]:bg-accent/15 data-[state=active]:text-accent py-2.5 px-3">
+              <Lightning size={18} weight="duotone" />
+              <span className="hidden sm:inline">Quick</span>
+            </TabsTrigger>
             <TabsTrigger value="sighash" className="flex items-center justify-center gap-2 data-[state=active]:bg-primary/15 data-[state=active]:text-primary py-2.5 px-3">
               <Function size={18} weight="duotone" />
               <span className="hidden sm:inline">Sighash</span>
             </TabsTrigger>
             <TabsTrigger value="attack" className="flex items-center justify-center gap-2 data-[state=active]:bg-primary/15 data-[state=active]:text-primary py-2.5 px-3">
               <Play size={18} weight="duotone" />
-              <span className="hidden sm:inline">Attack</span>
+              <span className="hidden sm:inline">Manual</span>
             </TabsTrigger>
             <TabsTrigger value="visualization" disabled={visualizationSteps.length === 0} className="flex items-center justify-center gap-2 data-[state=active]:bg-primary/15 data-[state=active]:text-primary py-2.5 px-3">
               <ChartLine size={18} weight="duotone" />
@@ -936,6 +941,35 @@ function App() {
               }}
               onGenerateAttack={handleGenerateAttack}
               isAnalyzing={isAnalyzing}
+            />
+          </TabsContent>
+
+          <TabsContent value="quick-attack" className="space-y-6">
+            <Alert className="border-accent/50 bg-accent/10">
+              <Lightning size={18} className="text-accent" weight="duotone" />
+              <AlertDescription className="text-sm">
+                <strong>⚡ Quick Attack Mode:</strong> Automatic strategy selection, intelligent retry logic, and one-click attack.
+                Upload signatures first, then run the orchestrated attack.
+              </AlertDescription>
+            </Alert>
+            <UnifiedAttackRunner 
+              signatures={uploadedSignatures}
+              targetAddress={targetAddress}
+              onKeyFound={(keyHex, keyWIF) => {
+                setPrivateKeyResult({
+                  privateKey: BigInt(keyHex),
+                  privateKeyHex: keyHex,
+                  address: targetAddress,
+                  derivedAddress: '',
+                  isValid: true,
+                  validationMethod: 'orchestrator',
+                  confidence: 1.0,
+                  signatures: uploadedSignatures
+                })
+                toast.success('🎉 Private Key Recovered!', {
+                  description: 'Check the results for WIF format'
+                })
+              }}
             />
           </TabsContent>
 
