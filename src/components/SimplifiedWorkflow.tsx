@@ -85,10 +85,20 @@ export function SimplifiedWorkflow() {
       // Handle gzip files
       if (file.name.endsWith('.gz')) {
         if ('DecompressionStream' in window) {
-          const stream = file.stream().pipeThrough(new DecompressionStream('gzip'))
-          content = await new Response(stream).text()
+          try {
+            const stream = file.stream().pipeThrough(new DecompressionStream('gzip'))
+            content = await new Response(stream).text()
+          } catch {
+            toast.error('Failed to decompress file', {
+              description: 'Please decompress .gz files manually before uploading'
+            })
+            setIsProcessing(false)
+            return
+          }
         } else {
-          toast.error('Please decompress .gz files before uploading')
+          toast.error('Browser does not support gzip decompression', {
+            description: 'Please decompress .gz files manually (use gunzip or similar)'
+          })
           setIsProcessing(false)
           return
         }
@@ -220,9 +230,16 @@ export function SimplifiedWorkflow() {
     toast.info('Attack stopped')
   }, [])
 
-  const copyToClipboard = useCallback((text: string) => {
-    navigator.clipboard.writeText(text)
-    toast.success('Copied to clipboard!')
+  const copyToClipboard = useCallback(async (text: string) => {
+    try {
+      await navigator.clipboard.writeText(text)
+      toast.success('Copied to clipboard!')
+    } catch {
+      // Fallback for older browsers or permission denied
+      toast.error('Failed to copy', {
+        description: 'Please select and copy manually'
+      })
+    }
   }, [])
 
   return (
