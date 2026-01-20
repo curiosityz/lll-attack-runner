@@ -10,7 +10,7 @@ import { Alert, AlertDescription } from '@/components/ui/alert'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Separator } from '@/components/ui/separator'
 import { Checkbox } from '@/components/ui/checkbox'
-import { Play, Lightbulb, Calculator, ListBullets, ChartLine, UploadSimple, Database, Function, Lightning } from '@phosphor-icons/react'
+import { Play, Calculator, ListBullets, ChartLine, UploadSimple, Function, Lightbulb } from '@phosphor-icons/react'
 import { toast } from 'sonner'
 import { AttackHistory, AttackType, AttackTemplate, LLLStep, AlgorithmType } from '@/lib/types'
 import { runLLL, parseBasisFromString } from '@/lib/lll'
@@ -25,31 +25,20 @@ import { MatrixHeatmap } from '@/components/MatrixHeatmap'
 import { OrthogonalityChart } from '@/components/OrthogonalityChart'
 import { DataUpload } from '@/components/DataUpload'
 import { BlockchairUpload } from '@/components/BlockchairUpload'
-import { AnalysisDisplay } from '@/components/AnalysisDisplay'
-import { AddressLookup } from '@/components/AddressLookup'
-import { BlockchainExplorerIntegration } from '@/components/BlockchainExplorerIntegration'
 import { SighashCalculator } from '@/components/SighashCalculator'
 import { ParsedSignature, ParseResult } from '@/lib/dataParser'
 import { analyzeSignatures, AnalysisResult, WeakSignature, PatternCluster } from '@/lib/signatureAnalyzer'
 import { ExtractedSignature } from '@/lib/blockchair-parser'
-import { ExplorerTransaction } from '@/lib/blockchain-explorer'
 import { extractPrivateKeyFromAttack, PrivateKeyResult } from '@/lib/privateKeyExtractor'
 import { PrivateKeyDisplay } from '@/components/PrivateKeyDisplay'
 import { PrecisionIndicator, PrecisionWarning } from '@/components/PrecisionIndicator'
-import { LargeDimensionInfo } from '@/components/LargeDimensionInfo'
 import { DimensionGuidance } from '@/components/DimensionGuidance'
-import { SignatureRequirementInfo } from '@/components/SignatureRequirementInfo'
 import { SaturationWarning } from '@/components/SaturationWarning'
-import { CORSExplanation } from '@/components/CORSExplanation'
 import { buildHNPLatticeWithDimensionSelection, BatchHNPLatticeResult } from '@/lib/hnp-lattice-builder'
 import { interpretBKZResult, InterpreterResult, isKeyFound, getRetryRecommendation } from '@/lib/result-interpreter'
 import { DimensionSelectorDisplay } from '@/components/DimensionSelectorDisplay'
 import { selectDimension, DimensionSelectionResult } from '@/lib/dimension-selector'
-import { DatabaseConfigPanel } from '@/components/DatabaseConfigPanel'
-import { getDatabaseClient } from '@/lib/database-client'
-import { BlockchairDataImport } from '@/components/BlockchairDataImport'
-import { UrlListStreamToD1 } from '@/components/UrlListStreamToD1'
-import { UnifiedAttackRunner } from '@/components/UnifiedAttackRunner'
+import { SimplifiedWorkflow } from '@/components/SimplifiedWorkflow'
 
 /**
  * Converts a BigInt matrix to a number matrix for display and processing.
@@ -849,46 +838,75 @@ function App() {
     toast.success('History cleared')
   }
 
+  // Toggle between simple and advanced modes
+  const [advancedMode, setAdvancedMode] = useState(false)
+
+  // Simple mode - just render SimplifiedWorkflow
+  if (!advancedMode) {
+    return (
+      <div className="min-h-screen bg-background/50 p-4 md:p-6 lg:p-8">
+        <div className="max-w-4xl mx-auto">
+          {/* Mode toggle */}
+          <div className="flex justify-end mb-4">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setAdvancedMode(true)}
+              className="text-xs text-muted-foreground hover:text-foreground"
+            >
+              <span className="mr-1">⚙️</span> Advanced Mode
+            </Button>
+          </div>
+          
+          <SimplifiedWorkflow />
+        </div>
+      </div>
+    )
+  }
+
+  // Advanced mode - the full complex interface
   return (
     <div className="min-h-screen bg-background/50 p-4 md:p-6 lg:p-8">
       <div className="max-w-[1600px] mx-auto">
         <header className="mb-8 md:mb-10">
-          <div className="flex items-center gap-4 mb-3">
-            <div className="p-3 bg-gradient-to-br from-primary/20 to-accent/20 rounded-2xl border border-primary/30 backdrop-blur-sm">
-              <Calculator size={36} className="text-primary" weight="duotone" />
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-4">
+              <div className="p-3 bg-gradient-to-br from-primary/20 to-accent/20 rounded-2xl border border-primary/30 backdrop-blur-sm">
+                <Calculator size={36} className="text-primary" weight="duotone" />
+              </div>
+              <div>
+                <h1 className="text-3xl md:text-4xl font-bold tracking-tight bg-gradient-to-r from-foreground via-primary to-accent bg-clip-text text-transparent">
+                  Lattice Attack Suite
+                </h1>
+                <p className="text-sm text-muted-foreground mt-1">
+                  Advanced Mode • Full Configuration Options
+                </p>
+              </div>
             </div>
-            <div>
-              <h1 className="text-3xl md:text-4xl font-bold tracking-tight bg-gradient-to-r from-foreground via-primary to-accent bg-clip-text text-transparent">
-                Lattice Attack Suite
-              </h1>
-              <p className="text-sm text-muted-foreground mt-1">
-                Upload → Analyze → Discover Weaknesses → Generate Attacks
-              </p>
-            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setAdvancedMode(false)}
+              className="text-xs"
+            >
+              <span className="mr-1">⚡</span> Simple Mode
+            </Button>
           </div>
         </header>
 
         <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
-          <TabsList className="grid w-full grid-cols-7 max-w-4xl h-auto p-1.5 bg-card/50 backdrop-blur-sm border border-border/60">
+          <TabsList className="grid w-full grid-cols-5 max-w-3xl h-auto p-1.5 bg-card/50 backdrop-blur-sm border border-border/60">
             <TabsTrigger value="upload" className="flex items-center justify-center gap-2 data-[state=active]:bg-primary/15 data-[state=active]:text-primary py-2.5 px-3">
               <UploadSimple size={18} weight="duotone" />
               <span className="hidden sm:inline">Upload</span>
             </TabsTrigger>
-            <TabsTrigger value="analyze" className="flex items-center justify-center gap-2 data-[state=active]:bg-primary/15 data-[state=active]:text-primary py-2.5 px-3">
-              <Database size={18} weight="duotone" />
-              <span className="hidden sm:inline">Analyze</span>
-            </TabsTrigger>
-            <TabsTrigger value="quick-attack" className="flex items-center justify-center gap-2 data-[state=active]:bg-accent/15 data-[state=active]:text-accent py-2.5 px-3">
-              <Lightning size={18} weight="duotone" />
-              <span className="hidden sm:inline">Quick</span>
+            <TabsTrigger value="attack" className="flex items-center justify-center gap-2 data-[state=active]:bg-primary/15 data-[state=active]:text-primary py-2.5 px-3">
+              <Play size={18} weight="duotone" />
+              <span className="hidden sm:inline">Manual</span>
             </TabsTrigger>
             <TabsTrigger value="sighash" className="flex items-center justify-center gap-2 data-[state=active]:bg-primary/15 data-[state=active]:text-primary py-2.5 px-3">
               <Function size={18} weight="duotone" />
               <span className="hidden sm:inline">Sighash</span>
-            </TabsTrigger>
-            <TabsTrigger value="attack" className="flex items-center justify-center gap-2 data-[state=active]:bg-primary/15 data-[state=active]:text-primary py-2.5 px-3">
-              <Play size={18} weight="duotone" />
-              <span className="hidden sm:inline">Manual</span>
             </TabsTrigger>
             <TabsTrigger value="visualization" disabled={visualizationSteps.length === 0} className="flex items-center justify-center gap-2 data-[state=active]:bg-primary/15 data-[state=active]:text-primary py-2.5 px-3">
               <ChartLine size={18} weight="duotone" />
@@ -901,76 +919,8 @@ function App() {
           </TabsList>
 
           <TabsContent value="upload" className="space-y-6">
-            <Alert className="border-accent/50 bg-accent/10">
-              <Lightbulb size={18} className="text-accent" weight="duotone" />
-              <AlertDescription className="text-sm">
-                <strong>⚠️ Browser Security Limitation:</strong> Direct blockchain API access is blocked by browser CORS policies. 
-                <strong> Solution:</strong> Upload signature data files (JSON/CSV/TSV) directly for full functionality.
-              </AlertDescription>
-            </Alert>
-            <BlockchairDataImport />
-            <UrlListStreamToD1 />
-            <BlockchairUpload onSignaturesExtracted={handleBlockchairSignatures} />
-            <AddressLookup onAttackGenerated={handleAddressAttack} />
             <DataUpload onDataParsed={handleDataParsed} />
-            <DatabaseConfigPanel 
-              onStreamingEnabledChange={(enabled) => setDbStreamingEnabled(enabled)} 
-            />
-          </TabsContent>
-
-          <TabsContent value="analyze" className="space-y-6">
-            <SignatureRequirementInfo currentCount={uploadedSignatures.length} />
-            <DimensionSelectorDisplay 
-              result={dimensionSelectionResult} 
-              totalSignatures={uploadedSignatures.length}
-              isComputing={isAnalyzing}
-            />
-            <AnalysisDisplay 
-              result={analysisResult || {
-                totalAnalyzed: 0,
-                weakSignatures: [],
-                patterns: [],
-                statistics: {
-                  totalSignatures: 0,
-                  uniqueAddresses: 0,
-                  rValueDistribution: { min: 0n, max: 0n, mean: 0 },
-                  sValueDistribution: { min: 0n, max: 0n, mean: 0 },
-                  bitBias: { lsb: 0, msb: 0 },
-                  addressFrequency: new Map()
-                }
-              }}
-              onGenerateAttack={handleGenerateAttack}
-              isAnalyzing={isAnalyzing}
-            />
-          </TabsContent>
-
-          <TabsContent value="quick-attack" className="space-y-6">
-            <Alert className="border-accent/50 bg-accent/10">
-              <Lightning size={18} className="text-accent" weight="duotone" />
-              <AlertDescription className="text-sm">
-                <strong>⚡ Quick Attack Mode:</strong> Automatic strategy selection, intelligent retry logic, and one-click attack.
-                Upload signatures first, then run the orchestrated attack.
-              </AlertDescription>
-            </Alert>
-            <UnifiedAttackRunner 
-              signatures={uploadedSignatures}
-              targetAddress={targetAddress}
-              onKeyFound={(keyHex, keyWIF) => {
-                setPrivateKeyResult({
-                  privateKey: BigInt(keyHex),
-                  privateKeyHex: keyHex,
-                  address: targetAddress,
-                  derivedAddress: '',
-                  isValid: true,
-                  validationMethod: 'orchestrator',
-                  confidence: 1.0,
-                  signatures: uploadedSignatures
-                })
-                toast.success('🎉 Private Key Recovered!', {
-                  description: 'Check the results for WIF format'
-                })
-              }}
-            />
+            <BlockchairUpload onSignaturesExtracted={handleBlockchairSignatures} />
           </TabsContent>
 
           <TabsContent value="sighash" className="space-y-6">
