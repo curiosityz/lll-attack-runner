@@ -6,6 +6,9 @@ import {
   parseDERSignature as parseBlockchairDER
 } from './blockchair-parser'
 
+// Hexadecimal validation pattern - matches strings containing only hex digits (0-9, a-f, A-F)
+const HEX_PATTERN = /^[0-9a-fA-F]+$/
+
 export interface ParsedTransaction {
   hash: string
   from: string
@@ -43,6 +46,13 @@ function hexToBigInt(hex: string): bigint {
   if (!hex) return 0n
   const cleaned = hex.startsWith('0x') ? hex.slice(2) : hex
   if (cleaned.length === 0) return 0n
+  // Validate that the string contains only valid hexadecimal characters
+  if (!HEX_PATTERN.test(cleaned)) {
+    if (process.env.NODE_ENV === 'development') {
+      console.warn('Invalid hex string provided (non-hex characters detected)')
+    }
+    return 0n
+  }
   try {
     return BigInt('0x' + cleaned)
   } catch {
